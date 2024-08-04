@@ -86,7 +86,13 @@ class ISLInterpreter{
   //Custom keywords and extensions
   #customKeywords = {}
   #extensions = []
-  #customLabels = []
+  get #customLabels(){
+    let labels = []
+    for(let ext of this.#extensions){
+      labels.push(...ext.labels)
+    }
+    return labels
+  }
 
   //Labels
   static #labels = [
@@ -105,6 +111,7 @@ class ISLInterpreter{
   #skipping = false
 
   //Options
+  options
   #showExecutionTime
   #silenced
   #debug
@@ -146,6 +153,7 @@ class ISLInterpreter{
    * @param {Boolean} options.haltOnDisallowedOperation Whether or not to stop execution when a disallowed instruction is executed. Default false.
    */
   constructor(options = {}){
+    this.options = options
     this.#name = options?.name ?? "<unnamed interpreter>"
     this.environment = options?.environment ?? "js"
     this.#showExecutionTime = options?.showExecutionTime ?? false
@@ -534,11 +542,8 @@ class ISLInterpreter{
     let meta = metaTag.substring(1, metaTag.length-1)
     let parts = meta.split(" ")
     let [tag, value] = [parts[0], parts.slice(1).join(" ")]
-    if(value.match(/\\[^\\]*\\/g)){
-      throw new Error("Meta tag values cannot be dynamic")
-    }
     if(tag === "require"){
-      if(!this.#extensions.includes(value)){
+      if(!this.#hasExtensionWithId(value)){
         throw new EnvironmentError("Required extension '"+value+"' is not present")
       }
     }
@@ -1079,7 +1084,7 @@ class ISLInterpreter{
       else if(this.#customKeywords[parts[0]] !== undefined){
         const keyword = this.#customKeywords[parts[0]]
         const inputs = parts.slice(1)
-        keyword.callback.apply(this, [this.#currentLabels, ...inputs])
+        keyword.callback.apply(keyword.source, [this, this.#currentLabels, ...inputs])
       }
 
       //Error if invalid
@@ -1723,57 +1728,39 @@ class ISLInterpreter{
   //come on, move them already
   //DON'T MAKE MORE
 
-  /**
-   * Allows definition of custom ISL keywords with callback functions.
-   * Literally only works with this interpreter, so don't even try it elsewhere.
-   * 
-   * @param {object} keyword Options for the custom keyword.
-   * @param {string} keyword.name Name of the keyword. What you will actually have to type in to use the keyword.
-   * @param {Function} keyword.callback Function to execute. Inputs are given as a list of function arguments after the first. The first parameter is an Array of the current labels. To get a variable value in this, call `this.getVar(name)`. To set a variable, call `this.setVar(name, value)`. `this` refers to the interpreter. Cannot be an arrow function!
-   * @example <caption>Creates the keyword `double`, which doubles a variable's value. Accepts one string input - `varName` - the variable name.</caption>
-   * -defineISLKeyword({
-     -  name: "double",
-     -  callback: function(labels, varName) {
-     -    this.setVar(
-     -      varName[0],
-     -      this.getVar(varName) * 2
-     -    )
-     -  }
-     -})
-     @example <caption>Alternatively:</caption>
-   * -defineISLKeyword({
-     -  name: "double",
-     -  callback(labels, varName) {
-     -    this.setVar(
-     -      varName[0],
-     -      this.getVar(varName) * 2
-     -    )
-     -  }
-     -})
-   */
-  defineISLKeyword(keyword){
-    this.#customKeywords[keyword.name] = {callback: keyword.callback}
+  
+  defineISLKeyword(...inputs){
+    console.warn("Use of defineISLKeyword is not supported, use extensions instead.")
   }
+
   /**
    * Loads keywords from an extension.
    * @param {ISLExtension} extension Extension to load from.
    */
   extend(extension){
     if(extension.id){
-      this.#extensions.push(extension.id)
+      this.#extensions.push(extension)
     }
     else{
       throw new EnvironmentError("Attempt to import extension without an identifier")
     }
     for(let wordName in extension.keywords){
       let keyword = extension.keywords[wordName]
-      this.#customKeywords[wordName] = {callback: keyword.callback}
+      this.#customKeywords[wordName] = {callback: keyword.callback, source: extension}
     }
     for(let varName in extension.variables){
       let variable = extension.variables[varName]
       this.#globalVariables[varName] = {value: variable.value, type: typeof variable.value}
     }
-    this.#customLabels.push(...extension.labels)
+    //this.#customLabels.push(...extension.labels)
+  }
+  #hasExtensionWithId(id){
+    for(let ext of this.#extensions){
+      if(ext.id === id){
+        return true
+      }
+    }
+    return false
   }
   //OK fine static stuff
   static #isLabel(name){

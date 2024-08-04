@@ -1,3 +1,4 @@
+import ISLInterpreter from "./interpreter.js";
 /*
  _______     ______     __
 |__   __|   /  __  \   |  |
@@ -31,10 +32,21 @@ class ISLExtension{
   get keywords(){return this.#keywords}
   get variables(){return this.#variables}
   get id(){return this.#identifier}
+
   /**
-   * Adds a keyword. Has the same functionality as as `ISLInterpreter.defineISLKeyword()`.
-   * @param {string} name The name of the keyword. What the interpreter should look out for.
-   * @param {Function} callback Function to execute. Inputs are given as an array. Has the same rules as `ISLInterpreter.defineISLKeyword`'s `options.callback` parameter.
+   * Adds a custom keyword to this extension. Does not automatically validate inputs.
+   * @param {string} name Name of the keyword. What you will actually have to type in to use the keyword.
+   * @param {Function} callback Function to execute. Inputs are given as a list of function arguments after the second. The first parameter is the interpreter. The second parameter is an Array of the current labels. To get a variable value in this, call `(interpreter).getVar(name)`. To set a variable, call `(interpreter).setVar(name, value)`. `this` refers to the extension the keyword was loaded from. Cannot be an arrow function!
+   * @example <caption>Creates the keyword `double`, which doubles a variable's value. Accepts one string input - `varName` - the variable name.</caption>
+   * -addKeyword(
+     -  "double",
+     -  function(interpreter, labels, varName) {
+     -    interpreter.setVar(
+     -      varName[0],
+     -      interpreter.getVar(varName) * 2
+     -    )
+     -  }
+     -})
    */
   addKeyword(name, callback){
     const obj = {callback: callback}
