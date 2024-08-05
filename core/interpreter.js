@@ -826,7 +826,7 @@ class ISLInterpreter{
       }
       return;
     }
-    while(ISLInterpreter.#isLabel(parts[0]) || this.#isOwnLabel(parts[0])){
+    while(ISLInterpreter.#isLabel(parts[0]) || this.#isOwnLabel(parts[0]) && parts[1] !== undefined){
       this.#currentLabels.push(parts[0])
       if(this.#debug){
         this.#log(parts[0], "is label")
@@ -1734,7 +1734,7 @@ class ISLInterpreter{
   }
 
   /**
-   * Loads keywords from an extension.
+   * Loads content from an extension.
    * @param {ISLExtension} extension Extension to load from.
    */
   extend(extension){
@@ -1754,6 +1754,7 @@ class ISLInterpreter{
     }
     //this.#customLabels.push(...extension.labels)
   }
+  
   #hasExtensionWithId(id){
     for(let ext of this.#extensions){
       if(ext.id === id){
