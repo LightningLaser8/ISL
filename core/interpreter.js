@@ -1754,7 +1754,16 @@ class ISLInterpreter{
     }
     //this.#customLabels.push(...extension.labels)
   }
-  
+  /**
+   * Loads an extension from a class.
+   * @param {*} extensionClass Class of the extension.
+   * @param  {...any} constructorParams Parameters to pass into the constructor, after the interpreter.
+   * @see {@link }
+   */
+  classExtend(extensionClass, ...constructorParams){
+    const extension = new extensionClass(this, ...constructorParams)
+    this.extend(extension)
+  }
   #hasExtensionWithId(id){
     for(let ext of this.#extensions){
       if(ext.id === id){
