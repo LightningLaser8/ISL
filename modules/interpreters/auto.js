@@ -1,5 +1,5 @@
-import ISLInterpreter from "../../core/interpreter.js";
-import ISLFileLoader from "../loader/isl-loader.js";
+import { ISLInterpreter } from "../../core/interpreter.js";
+import { ISLFileLoader } from "../loader/isl-loader.js";
 /** Import and run ISL with one function call. Can load local files or add a file input. Only exists to make a more concise way to create an interpreter with a loader. */
 class AutoInterpreter extends ISLInterpreter{
   /** `ISLFileLoader` to load files with. */
@@ -23,4 +23,4 @@ class AutoInterpreter extends ISLInterpreter{
     this.#fileLoader.setupInput(name)
   }
 }
-export default AutoInterpreter
+export { AutoInterpreter }

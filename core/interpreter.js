@@ -134,6 +134,11 @@ class ISLInterpreter{
   //oh god
   #staticTypes = true
 
+  //Callbacks
+  #onerror = (error, defaultHandler) => {defaultHandler(error)}
+  #onwarn = (warning) => {this.#defaultWarn(warning)}
+  #onlog = (...msg) => {this.#defaultLog(...msg)}
+
   /**
    * @param {Object} options Options to run with. All fields are optional.
    * @param {String} options.name Display name for log messages. Can be left blank. Defaults to "<unnamed interpreter>".
@@ -151,6 +156,10 @@ class ISLInterpreter{
    * @param {Boolean} options.bufferedGraphics Whether or not to add graphics to a buffer array, then draw them all at once with the `draw` keyword. When disabled, graphics may flicker slightly. Default true.
    * @param {Boolean} options.disallowIndependentGraphics Whether or not to disallow canvas operations. Default false.
    * @param {Boolean} options.haltOnDisallowedOperation Whether or not to stop execution when a disallowed instruction is executed. Default false.
+   * 
+   * @param {(error: string, defaultHandler: (error: string) => {}) => {}} options.onerror Callback for any errors from ISL code. Can invoke the default error handler through the second parameter. The error is given as a STRING holding the message, not the error object.
+   * @param {(warning: string[]) => {}} options.onwarn Callback for any warnings.
+   * @param {(msg: string[]) => {}} options.onlog Callback for any log messages, including ones from ISL code and internally.
    */
   constructor(options = {}){
     this.options = options
@@ -174,7 +183,35 @@ class ISLInterpreter{
     document.onkeyup = event => {this.#keyUp(event)}
     document.onmousedown = () => {this.#click(); this.#globalVariables.md.value = 1}
     document.onmouseup = () => {this.#globalVariables.md.value = 0}
+    this.#onerror = options.onerror ?? this.#onerror
+    this.#onwarn = options.onwarn ?? this.#onwarn
+    this.#onlog = options.onlog ?? this.#onlog
     //document.onmousemove = event => {this.mouseMoved(event)}
+  }
+
+  #handleError(error){
+    this.#lastErrorLine = this.#pc
+    this.stopExecution();
+    if(this.#reportErrors){
+      this.#error(
+        (error instanceof ISLError)?
+        ("Error detected; execution halted\n"+
+        error.message+"\n  -> line "+this.#lastErrorLine+" in "+this.#filename+
+        "\nDetails: \n  Error Type: "+error.type.name+
+        "\n  Stacktrace: \n"+ this.#stacktrace+
+        "\n\nRun with options.reportErrors = false to hide this and all further errors from this interpreter"):
+        ("Error detected; execution halted\n"+
+          "Internal "+error.constructor.name+"\nwhile running line "+this.#lastErrorLine+" in "+this.#filename+":"+
+          "\n '"+error.message+"'"+
+          "\nDetails: \n  Error Type: "+error.constructor.name+
+          "\n  Interpreter Stacktrace:\n"+ error.stack.split("\n").slice(1).join("\n")+
+          "\n\nRun with options.reportErrors = false to hide this and all further errors from this interpreter")
+      )
+    }
+  }
+
+  #callErrorCallback(error){
+    this.#onerror(error, (error) => {console.error(error)})
   }
 
   get #keysDown(){
@@ -284,7 +321,7 @@ class ISLInterpreter{
           this.#log(this.#counter)
         }
         if(this.#isl[this.#counter] || this.#isl[this.#counter] == ""){
-          this.executeLine(this.#isl[this.#counter])
+          this.#executeLineInternal(this.#isl[this.#counter])
           this.#counter ++
           if(this.#pc > this.#isl.length){
             this.#reset()
@@ -298,7 +335,7 @@ class ISLInterpreter{
         }
       }
       else{
-        throw new Error("No ISL defined for execution")
+        throw new ISLError("No ISL defined for execution", Error)
       }
     }
   }
@@ -311,16 +348,16 @@ class ISLInterpreter{
             this.#log(this.#counter)
           }
           if(this.#isl[this.#counter]){
-            this.executeLine(this.#isl[this.#counter])
+            this.#executeLineInternal(this.#isl[this.#counter])
             //this.#counter ++
           }
           else{
             this.#reset()
-            throw new SyntaxError("Empty ISL elements are not allowed in executeAllISL")
+            throw new ISLError("Empty ISL elements are not allowed in executeAllISL", SyntaxError)
           }
         }
         else{
-          throw new Error("No ISL defined for execution")
+          throw new ISLError("No ISL defined for execution", Error)
         }
       }
     }
@@ -354,18 +391,7 @@ class ISLInterpreter{
           }
         }
         catch(error){
-          this.#lastErrorLine = this.#pc
-          this.stopExecution();
-          if(this.#reportErrors){
-            this.#error(
-              "Error detected; execution halted\n",
-              new ISLError(error.message, this.#lastErrorLine, this.#filename),
-              "\nDetails: \n  Error Type:",error.constructor.name,
-              //"\n  Interpreter Stacktrace:\n", error.stack.split("\n").slice(1).join("\n"),
-              "\n  Stacktrace:\n", this.#stacktrace,
-              "\n\nRun with options.reportErrors = false to hide this and all further errors from this interpreter"
-            )
-          }
+          this.#handleError(error)
         }
       }
       ,speed)
@@ -445,6 +471,13 @@ class ISLInterpreter{
    * @param {String} line ISL line to execute
    */
   executeLine(line){
+    try {
+      this.#executeLineInternal(line)
+    } catch (error) {
+      this.#handleError(error)
+    }
+  }
+  #executeLineInternal(line){
     exe: if(line != null && line != undefined && line != "" && line != "\n"){
       if(line.trim().match(/^\[.*\]$/)){
         this.#parseMeta(line)
@@ -485,7 +518,7 @@ class ISLInterpreter{
                     v = this.#globalVariables[nam].value
                   }
                   else{
-                    throw new ReferenceError("Global variable '"+nam+"' does not exist!")
+                    throw new ISLError("Global variable '"+nam+"' does not exist!", ReferenceError)
                   }
                   return v
                 })
@@ -544,7 +577,7 @@ class ISLInterpreter{
     let [tag, value] = [parts[0], parts.slice(1).join(" ")]
     if(tag === "require"){
       if(!this.#hasExtensionWithId(value)){
-        throw new EnvironmentError("Required extension '"+value+"' is not present")
+        throw new ISLError("Required extension '"+value+"' is not present", EnvironmentError)
       }
     }
     if(tag === "ignore"){
@@ -554,7 +587,7 @@ class ISLInterpreter{
     }
     if(tag === "environment" || tag === "env"){
       if(this.environment != value){
-        throw new EnvironmentError("Incorrect environment for operation: File requires '"+value+"', got '"+this.environment+"'")
+        throw new ISLError("Incorrect environment for operation: File requires '"+value+"', got '"+this.environment+"'", EnvironmentError)
       }
     }
     if(tag === "display"){
@@ -563,7 +596,7 @@ class ISLInterpreter{
         this.#filename = value
       }
       else{
-        throw new SyntaxError("Display name must be a non-empty string")
+        throw new ISLError("Display name must be a non-empty string", SyntaxError)
       }
     }
   }
@@ -593,7 +626,7 @@ class ISLInterpreter{
     if(this.#localVariables[varName] != null){
       return this.#localVariables[varName].value
     }
-    throw new ReferenceError("Variable '"+varName+"' does not exist!")
+    throw new ISLError("Variable '"+varName+"' does not exist!", ReferenceError)
   }
   /**
    * Gets parameter value from declared name. Throws an error if it doesn't exist.
@@ -604,7 +637,7 @@ class ISLInterpreter{
     if(this.#parameters[varName] != null){
       return this.#parameters[varName].value
     }
-    throw new ReferenceError("Parameter '"+varName+"' does not exist!") //Doesn't ever actually get thrown
+    throw new ISLError("Parameter '"+varName+"' does not exist!", ReferenceError)
   }
 
   toParameterObjects(func, parameters){
@@ -623,7 +656,7 @@ class ISLInterpreter{
       console.log("parsing",parameters.length,"parameters")
     }
     if(parameters.length !== paramNames.length){
-      throw new SyntaxError("Function '"+func+"' requires "+paramNames.length+" parameter(s), but received "+parameters.length)
+      throw new ISLError("Function '"+func+"' requires "+paramNames.length+" parameter(s), but received "+parameters.length, SyntaxError)
     }
     for(let p = 0; p < parameters.length; p++){
       let parameter = parameters[p]
@@ -631,7 +664,7 @@ class ISLInterpreter{
         console.log("parameter index",p,"=>",parameter)
       }
       if(paramTypes[p] !== typeof parameter){
-        throw new TypeError("Parameter '"+paramNames[p]+"' has type '"+paramTypes[p]+"', but was given an argument of type '"+typeof parameter+"'")
+        throw new ISLError("Parameter '"+paramNames[p]+"' has type '"+paramTypes[p]+"', but was given an argument of type '"+typeof parameter+"'", TypeError)
       }
       Object.defineProperty(params, paramNames[p], {
         value: {
@@ -651,7 +684,7 @@ class ISLInterpreter{
       this.#localVariables[varName].value = value
     }
     else{
-      throw new ReferenceError("Variable '"+varName+"' does not exist!")
+      throw new ISLError("Variable '"+varName+"' does not exist!", ReferenceError)
     }
   }
   /**
@@ -663,7 +696,7 @@ class ISLInterpreter{
     if(this.#functions[funcName] != null){
       return this.#functions[funcName]
     }
-    throw new ReferenceError("Function '"+funcName+"' does not exist!")
+    throw new ISLError("Function '"+funcName+"' does not exist!", ReferenceError)
   }
 
   /**
@@ -675,7 +708,7 @@ class ISLInterpreter{
     if(this.#localVariables[varName] != null){
       return this.#localVariables[varName]
     }
-    throw new ReferenceError("Variable '"+varName+"' does not exist!")
+    throw new ISLError("Variable '"+varName+"' does not exist!", ReferenceError)
   }
   /**
    * Resets the interpreter to the start. Soft resets all local variables.
@@ -722,6 +755,9 @@ class ISLInterpreter{
    * @param {*[]} msg 
    */
   #log(...msg){
+    this.#onlog(...msg)
+  }
+  #defaultLog(...msg){
     if(!this.#silenced){
       console.log(this.#nameString, ...msg)
     }
@@ -731,37 +767,33 @@ class ISLInterpreter{
    * @param {*[]} msg 
    */
   #warn(...msg){
+    this.#onwarn(...msg)
+  }
+  #defaultWarn(...msg){
     if(!this.#silenced){
       console.warn(this.#nameString, ...msg)
     }
   }
   /**
-   * Sends an error to the browser's console. Affected by options.silenced, and prefixes the message with the interpreter's name.
-   * @param {*[]} msg 
+   * Sends an error to the built-in error handler. Affected by options.silenced, and prefixes the message with the interpreter's name.
+   * @param {Error | string} msg 
    */
-  #error(...msg){
-    if(!this.#silenced){
-      console.error(this.#nameString, ...msg)
-    }
+  #error(msg){
+    this.#callErrorCallback(msg)
   }
   #handleKey(event, variable, type = "set"){
     if(this.#listeningForKeyPress){
-      if(this.#doesVarExist(variable)){
-        switch(type){
-          case "set":
-            this.#isl_set(variable, event.key)
-            break;
-          case "add":
-            this.#isl_add(variable, event.key)
-            break;
-        }
-        
-        if(this.#debug){
-          this.#log("Key recieved: "+event.key)
-        }
+      switch(type){
+        case "set":
+          this.#isl_set(variable, event.key)
+          break;
+        case "add":
+          this.#isl_add(variable, event.key)
+          break;
       }
-      else{
-        throw new ReferenceError("Variable '"+variable+"' does not exist!")
+      
+      if(this.#debug){
+        this.#log("Key recieved: "+event.key)
       }
       this.#listeningForKeyPress = false
     }
@@ -787,7 +819,7 @@ class ISLInterpreter{
         return new RegExp(val1, "g").test(val2)
 
       default:
-        throw new SyntaxError("Operator '"+operator+"' is not recognised.")
+        throw new ISLError("Operator '"+operator+"' is not recognised.", SyntaxError)
     }
   }
   #getVariableFromFullPath(path){
@@ -835,7 +867,7 @@ class ISLInterpreter{
     }
     for(let l of this.#currentLabels){
       if(!(ISLInterpreter.#isLabelFor(l, parts[0]) || this.#isOwnLabelFor(l, parts[0]))){
-        throw new SyntaxError("Label '"+l+"' is not applicable to '"+parts[0]+"'")
+        throw new ISLError("Label '"+l+"' is not applicable to '"+parts[0]+"'", SyntaxError)
       }
     }
     if(this.#skipping){
@@ -1089,7 +1121,7 @@ class ISLInterpreter{
 
       //Error if invalid
       else{
-        throw new SyntaxError("Statement '"+parts[0]+"' not recognised")
+        throw new ISLError("Statement '"+parts[0]+"' not recognised", SyntaxError)
       }
     }
   }
@@ -1111,7 +1143,7 @@ class ISLInterpreter{
       this.#pc = parseInt(line) - 1
     }
     else{
-      throw new TypeError("Line numbers must be numbers or relative positions.")
+      throw new ISLError("Line numbers must be numbers or relative positions.", TypeError)
     }
   }
   //Variable Creation
@@ -1122,7 +1154,7 @@ class ISLInterpreter{
         this.#warn("No type set for variable '"+name+"'!")
       }
       if(this.#doesVarExist(name) && this.#hasVarBeenDeclaredInCurrentRun(name)){
-        throw new ReferenceError("Cannot redeclare local variable '"+name+"'")
+        throw new ISLError("Cannot redeclare local variable '"+name+"'", ReferenceError)
       }
       else{
         this.#localVariables[name] = {value: initialValue, type: type, declared: true}
@@ -1130,7 +1162,7 @@ class ISLInterpreter{
     }
     else if(declareType === "cmd"){
       if(this.#doesFuncExist(name) && this.#hasFuncBeenDeclaredInCurrentRun(name)){
-        throw new ReferenceError("Cannot redeclare function '"+name+"'")
+        throw new ISLError("Cannot redeclare function '"+name+"'", ReferenceError)
       }
       else{
         let paramNames = []
@@ -1151,14 +1183,14 @@ class ISLInterpreter{
       }
     }
     else{
-      throw new SyntaxError("Unknown type: '"+declareType+"', expected 'var' or 'cmd'")
+      throw new ISLError("Unknown type: '"+declareType+"', expected 'var' or 'cmd'", SyntaxError)
     }
   }
   //uh, BYE
   #isl_delete(name){
     this.#validateStr("delete", ["variable", name])
     if(!this.#doesVarExist(name)){
-      throw new ReferenceError("Cannot delete nonexistent variable '"+name+"'")
+      throw new ISLError("Cannot delete nonexistent variable '"+name+"'", ReferenceError)
     }
     else{
       delete this.#localVariables[name]
@@ -1168,7 +1200,7 @@ class ISLInterpreter{
   #isl_end(name){
     this.#validateStr("end", ["name", name])
     if(!this.#doesFuncExist(name)){
-      throw new ReferenceError("Function '"+name+"' does not exist!")
+      throw new ISLError("Function '"+name+"' does not exist!", ReferenceError)
     }
     else{
       this.#functions[name].indexEnd = this.#counter
@@ -1188,7 +1220,7 @@ class ISLInterpreter{
   #isl_execute(func, ...inParameters){
     this.#validateStr("execute", ["name", func])
     if(!this.#doesFuncExist(func)){
-      throw new ReferenceError("Function '"+func+"' does not exist!")
+      throw new ISLError("Function '"+func+"' does not exist!", ReferenceError)
     }
     else{
       let parameters = inParameters.slice(0)
@@ -1211,14 +1243,14 @@ class ISLInterpreter{
       if(value){
         const varToModify = this.#getVarObj(variable)
         if(this.#staticTypes && (varToModify.type !== "number" && varToModify.type !== "string")){
-          throw new TypeError("Cannot add to a variable with type '"+varToModify.type+"'")
+          throw new ISLError("Cannot add to a variable with type '"+varToModify.type+"'", TypeError)
         }
         varToModify.value += value
         varToModify.type = "number"
       }
     }
     else{
-      throw new ReferenceError("Variable '"+variable+"' does not exist!")
+      throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
     }
   }
   #isl_sub(variable, value){
@@ -1227,13 +1259,13 @@ class ISLInterpreter{
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(this.#staticTypes && varToModify.type !== "number"){
-        throw new TypeError("Cannot subtract from a variable with type '"+varToModify.type+"'")
+        throw new ISLError("Cannot subtract from a variable with type '"+varToModify.type+"'", TypeError)
       }
       varToModify.value -= value
       varToModify.type = "number"
     }
     else{
-      throw new ReferenceError("Variable '"+variable+"' does not exist!")
+      throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
     }
   }
   #isl_mult(variable, value){
@@ -1242,13 +1274,13 @@ class ISLInterpreter{
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(this.#staticTypes && varToModify.type !== "number"){
-        throw new TypeError("Cannot multiply a variable with type '"+varToModify.type+"'")
+        throw new ISLError("Cannot multiply a variable with type '"+varToModify.type+"'", TypeError)
       }
       varToModify.value *= value
       varToModify.type = "number"
     }
     else{
-      throw new ReferenceError("Variable '"+variable+"' does not exist!")
+      throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
     }
   }
   #isl_exp(variable, value){
@@ -1257,13 +1289,13 @@ class ISLInterpreter{
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(this.#staticTypes && varToModify.type !== "number"){
-        throw new TypeError("Cannot exponentiate a variable with type '"+varToModify.type+"'")
+        throw new ISLError("Cannot exponentiate a variable with type '"+varToModify.type+"'", TypeError)
       }
       varToModify.value **= value
       varToModify.type = "number"
     }
     else{
-      throw new ReferenceError("Variable '"+variable+"' does not exist!")
+      throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
     }
   }
   #isl_root(variable, value){
@@ -1272,13 +1304,13 @@ class ISLInterpreter{
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(this.#staticTypes && varToModify.type !== "number"){
-        throw new TypeError("Cannot calculate nth root of a variable with type '"+varToModify.type+"'")
+        throw new ISLError("Cannot calculate nth root of a variable with type '"+varToModify.type+"'", TypeError)
       }
       varToModify.value **= 1/value
       varToModify.type = "number"
     }
     else{
-      throw new ReferenceError("Variable '"+variable+"' does not exist!")
+      throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
     }
   }
   #isl_div(variable, value){ //Now with static typing!
@@ -1287,13 +1319,13 @@ class ISLInterpreter{
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(this.#staticTypes && varToModify.type !== "number"){
-        throw new TypeError("Cannot divide a variable with type '"+varToModify.type+"'")
+        throw new ISLError("Cannot divide a variable with type '"+varToModify.type+"'", TypeError)
       }
       varToModify.value /= value
       varToModify.type = "number"
     }
     else{
-      throw new ReferenceError("Variable '"+variable+"' does not exist!")
+      throw new ISLError("Variable '"+variable+"' does not exist!",ReferenceError)
     }
   }
   #isl_set(variable, value){
@@ -1301,12 +1333,12 @@ class ISLInterpreter{
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(this.#staticTypes && varToModify.type !== typeof value){
-        throw new TypeError("Cannot set a variable with type '"+varToModify.type+"' to a '"+typeof value+"'")
+        throw new ISLError("Cannot set a variable with type '"+varToModify.type+"' to a '"+typeof value+"'", TypeError)
       }
       varToModify.value = value
     }
     else{
-      throw new ReferenceError("Variable '"+variable+"' does not exist!")
+      throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
     }
   }
   //Variable Manipulation: Unary operators
@@ -1316,7 +1348,7 @@ class ISLInterpreter{
       let v = this.#getVarObj(variable)
       const varToModify = this.#getVarObj(variable)
       if(this.#staticTypes && varToModify.type != "number"){
-        throw new TypeError("Cannot round a variable with type '"+varToModify.type+"'")
+        throw new ISLError("Cannot round a variable with type '"+varToModify.type+"'", TypeError)
       }
       else{
         varToModify.type = "number"
@@ -1324,7 +1356,7 @@ class ISLInterpreter{
       varToModify.value = Math.round(v.value)
     }
     else{
-      throw new ReferenceError("Variable '"+variable+"' does not exist!")
+      throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
     }
   }
   #isl_negate(variable){
@@ -1332,7 +1364,7 @@ class ISLInterpreter{
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(this.#staticTypes && varToModify.type != "number"){
-        throw new TypeError("Cannot negate a variable with type '"+varToModify.type+"'")
+        throw new ISLError("Cannot negate a variable with type '"+varToModify.type+"'", TypeError)
       }
       else{
         varToModify.type = "number"
@@ -1340,7 +1372,7 @@ class ISLInterpreter{
       varToModify.value = -varToModify.value
     }
     else{
-      throw new ReferenceError("Variable '"+variable+"' does not exist!")
+      throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
     }
   }
   //IO
@@ -1356,7 +1388,7 @@ class ISLInterpreter{
         this.#isl_set(variable, newValue)
       }
       else{
-        throw new ReferenceError("Variable '"+variable+"' does not exist!")
+        throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
       }
     }
   }
@@ -1372,7 +1404,7 @@ class ISLInterpreter{
         this.#listenerManipulationType = type
       }
       else{
-        throw new ReferenceError("Variable '"+variable+"' does not exist!")
+        throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
       }
     }
   }
@@ -1390,7 +1422,7 @@ class ISLInterpreter{
         }
         const varToModify = this.#getVarObj(variable)
         if(this.#staticTypes && varToModify.type != "string"){
-          throw new TypeError("Variable with type '"+varToModify.type+"' cannot be set to value with type 'string'")
+          throw new ISLError("Variable with type '"+varToModify.type+"' cannot be set to value with type 'string'", TypeError)
         }
         else{
           varToModify.type = "string"
@@ -1403,11 +1435,11 @@ class ISLInterpreter{
           varToModify.value = output
         }
         else{
-          throw new SyntaxError("Type "+type+" for 'getkeys' not recognised, should be 'add' or 'set'")
+          throw new ISLError("Type "+type+" for 'getkeys' not recognised, should be 'add' or 'set'", SyntaxError)
         }
       }
       else{
-        throw new ReferenceError("Variable '"+variable+"' does not exist!")
+        throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
       }
     }
   }
@@ -1431,7 +1463,7 @@ class ISLInterpreter{
           this.#setVariableFromFullPath(external, this.getVar(local))
         }
         else{
-          throw new ReferenceError("Variable '"+local+"' does not exist!")
+          throw new ISLError("Variable '"+local+"' does not exist!", ReferenceError)
         }
       }
     }
@@ -1448,7 +1480,7 @@ class ISLInterpreter{
           this.#isl_set(local, newValue)
         }
         else{
-          throw new ReferenceError("Variable '"+local+"' does not exist!")
+          throw new ISLError("Variable '"+local+"' does not exist!", ReferenceError)
         }
       }
     }
@@ -1477,10 +1509,10 @@ class ISLInterpreter{
         }
         else{
           if(typeof width === "number"){
-            throw new TypeError("Canvas height must be a number, got "+ typeof height)
+            throw new ISLError("Canvas height must be a number, got "+ typeof height, TypeError)
           }
           else{
-            throw new TypeError("Canvas width must be a number, got "+ typeof width)
+            throw new ISLError("Canvas width must be a number, got "+ typeof width, TypeError)
           }
         }
       }
@@ -1503,7 +1535,7 @@ class ISLInterpreter{
           x -= width
         }
         else{
-          throw new SyntaxError("'aligned' requires a direction: 'left' or 'right'")
+          throw new ISLError("'aligned' requires a direction: 'left' or 'right'", SyntaxError)
         }
       }
     }
@@ -1540,7 +1572,7 @@ class ISLInterpreter{
           x -= width/2
         }
         else{
-          throw new SyntaxError("'aligned' requires a direction: 'left' or 'right'")
+          throw new ISLError("'aligned' requires a direction: 'left' or 'right'", SyntaxError)
         }
       }
     }
@@ -1577,7 +1609,7 @@ class ISLInterpreter{
           x -= width/2
         }
         else{
-          throw new SyntaxError("'aligned' requires a direction: 'left' or 'right'")
+          throw new ISLError("'aligned' requires a direction: 'left' or 'right'", SyntaxError)
         }
       }
     }
@@ -1606,7 +1638,7 @@ class ISLInterpreter{
     this.#validateNum("text", ["x", x], ["y", y])
     this.#validateStr("text", ["text", text])
     if(typeof maxWidth !== "number" && typeof maxWidth !== "undefined"){
-      throw new TypeError("'text' expects a number or null for argument 'maxWidth', got"+typeof maxWidth)
+      throw new ISLError("'text' expects a number or undefined for argument 'maxWidth', got"+typeof maxWidth, TypeError)
     }
     const context = this.#getRenderContext()
     context.font = (this.#canvasSettings.textSize ?? 20)+"px "+(this.#canvasSettings.textFont ?? "Arial")
@@ -1624,7 +1656,7 @@ class ISLInterpreter{
           x -= width
         }
         else{
-          throw new SyntaxError("'aligned' requires a direction: 'left' or 'right'")
+          throw new ISLError("'aligned' requires a direction: 'left' or 'right'", SyntaxError)
         }
       }
     }
@@ -1716,11 +1748,11 @@ class ISLInterpreter{
       }
       if(i[2] === "optional"){
         if(typeof i[1] !== type && typeof i[1] !== "undefined"){
-          throw new TypeError("'"+keyword+"' expects type '"+type+"' or empty for argument "+i[0]+", got '"+typeof i[1]+"' ('"+i[1]+"')")
+          throw new ISLError("'"+keyword+"' expects type '"+type+"' or empty for argument "+i[0]+", got '"+typeof i[1]+"' ('"+i[1]+"')", TypeError)
         }
       }
       else if(typeof i[1] !== type){
-        throw new TypeError("'"+keyword+"' expects type '"+type+"' for argument "+i[0]+", got '"+typeof i[1]+"' ('"+i[1]+"')")
+        throw new ISLError("'"+keyword+"' expects type '"+type+"' for argument "+i[0]+", got '"+typeof i[1]+"' ('"+i[1]+"')", TypeError)
       }
     }
   }
@@ -1730,7 +1762,7 @@ class ISLInterpreter{
 
   
   defineISLKeyword(...inputs){
-    console.warn("Use of defineISLKeyword is not supported, use extensions instead.")
+    console.warn("Use of defineISLKeyword is no longer supported, use extensions instead.")
   }
 
   /**
@@ -1742,7 +1774,7 @@ class ISLInterpreter{
       this.#extensions.push(extension)
     }
     else{
-      throw new EnvironmentError("Attempt to import extension without an identifier")
+      throw new ISLError("Attempt to import extension without an identifier", EnvironmentError)
     }
     for(let wordName in extension.keywords){
       let keyword = extension.keywords[wordName]
@@ -1815,14 +1847,20 @@ function clamp(number, min, max) {
   return Math.min(Math.max(number, min), max);
 }
 
+class EnvironmentError extends Error{}
+
+/**
+ * ISL Error type, use this if you want your error to show up as an error in the ISL code instead of an internal one.
+ */
 class ISLError extends Error{
-  constructor(message, ln, file) {
-    super(message);
-    this.name = 'ISLError';
-    this.stack = this.name+": "+this.message+"\n-> line "+ln+" in "+file
+  /**
+   * @param {string} message Error message. A short description (one sentence) of what went wrong.
+   * @param {class} type Extra type of an error. Should be a subclass of `Error`.
+   */
+  constructor(message, type){
+    super(message)
+    this.type = type
   }
 }
 
-class EnvironmentError extends Error{}
-
-export default ISLInterpreter
+export { ISLInterpreter, ISLError }

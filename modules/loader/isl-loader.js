@@ -164,4 +164,4 @@ class ISLFileLoader{
     }
   }
 
-  export default ISLFileLoader
+  export { ISLFileLoader }

@@ -1,4 +1,4 @@
-import ISLInterpreter from "./interpreter.js";
+import { ISLInterpreter } from "./interpreter.js";
 /*
  _______     ______     __
 |__   __|   /  __  \   |  |
