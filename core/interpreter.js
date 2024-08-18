@@ -40,14 +40,7 @@ class ISLInterpreter{
 
   //Vars
   #localVariables = {}
-  #globalVariables = { //These cannot be changed by ISL, they're like constants but custom keywords and events can change them
-    /** X position of mouse relative to the current canvas' upper-left corner. */
-    mx: {value: 0, type: "number"},
-    /** Y position of mouse relative to the current canvas' upper-left corner. */
-    my: {value: 0, type: "number"},
-    /** 1 if the mouse is pressed, 0 if not. */
-    md: {value: 0, type: "number"}
-  }
+  #globalVariables = {} //These cannot be changed by ISL, they're like constants but custom keywords and events can change them.
   #functions = {}
   #parameters = {}
   #callstack = []
@@ -67,15 +60,7 @@ class ISLInterpreter{
 
   //IO
   #console = new ISLInterpreter.#ISLConsole()
-  #canvas = null
-  #canvasSettings = {
-    outlineWidth: 1,
-    outlineColour: "#000000",
-    fillColour: "#cacaca",
-    textSize: 20,
-    textFont: "Arial"
-  }
-  #drawBuffer = []
+  
 
   //Listeners, i guess
   #listeningForKeyPress = false
@@ -96,13 +81,7 @@ class ISLInterpreter{
 
   //Labels
   static #labels = [
-    {label: "filled", for: ["rectangle", "circle", "ellipse"]},
-    {label: "hollow", for: ["rectangle", "circle", "ellipse"]},
-    {label: "no", for: ["outline", "fill"]},
     {label: "non-destructive", for: ["restart"]},
-    {label: "aligned", for: ["text", "ellipse", "circle", "rectangle"]},
-    {label: "left", for: ["text", "ellipse", "circle", "rectangle"]},
-    {label: "right", for: ["text", "ellipse", "circle", "rectangle"]}
   ]
   #currentLabels = []
 
@@ -122,8 +101,6 @@ class ISLInterpreter{
   #reportErrors
   #instant
   #instructionsAtOnce
-  #bufferedGraphics
-  disallowIndependentGraphics
   haltOnDisallowedOperation
   #tagMessages
 
@@ -174,15 +151,13 @@ class ISLInterpreter{
     this.#allowCommunicationDefault = options?.allowCommunicationDefault ?? false
     this.#reportErrors = options?.reportErrors ?? true
     this.#instant = options?.instant ?? false
-    this.#bufferedGraphics = options?.bufferedGraphics ?? true
     this.#instructionsAtOnce = options?.instructions ?? 1
-    this.disallowIndependentGraphics = options?.disallowIndependentGraphics ?? false
     this.haltOnDisallowedOperation = options?.haltOnDisallowedOperation ?? false
     this.allowExport = this.allowImport = this.#allowCommunicationDefault
-    document.onkeydown = event => {this.#handleKey.apply(this, [event, this.#listenerTarget, this.#listenerManipulationType]); this.#keyDown(event) }; //Listen for key press
-    document.onkeyup = event => {this.#keyUp(event)}
-    document.onmousedown = () => {this.#click(); this.#globalVariables.md.value = 1}
-    document.onmouseup = () => {this.#globalVariables.md.value = 0}
+
+    addEventListener("keydown", event => {this.#handleKey.apply(this, [event, this.#listenerTarget, this.#listenerManipulationType]); this.#keyDown(event) })
+    addEventListener("keyup", event => {this.#keyUp(event)})
+
     this.#onerror = options.onerror ?? this.#onerror
     this.#onwarn = options.onwarn ?? this.#onwarn
     this.#onlog = options.onlog ?? this.#onlog
@@ -270,19 +245,14 @@ class ISLInterpreter{
     }
     this.#warn("Disallowed Operation:", ...msg, aaa)
   }
-  #mouseMoved(event){
-    this.#globalVariables.mx.value = event.offsetX
-    this.#globalVariables.my.value = event.offsetY
-  }
-  #click(){
 
-  }
   #keyDown(event){
     this.#pressed[event.key] = true
   }
   #keyUp(event){
     delete this.#pressed[event.key]
   }
+  
   /**
    * Logs the entire internal output console to the JS one.
    */
@@ -968,14 +938,14 @@ class ISLInterpreter{
         this.startExecution(this.executeSpeed)
       }
       else if(parts[0] === "rundelay"){
-        this.#validateNum("rundelay", ["delay", parts[1]])
+        ISLInterpreter.validateNum("rundelay", ["delay", parts[1]])
         this.executeSpeed = parts[1] ?? 10
       }
       else if(parts[0] === "stop"){
         this.stopExecution()
       }
       else if(parts[0] === "pause"){
-        this.#validateNum("pause", ["timeout", parts[1]])
+        ISLInterpreter.validateNum("pause", ["timeout", parts[1]])
         this.#waits += parts[1]
       }
       else if(parts[0] === "if"){
@@ -991,125 +961,6 @@ class ISLInterpreter{
       }
       else if(parts[0] === "import"){
         this.#isl_import(parts[1], parts[2])
-      }
-      //Graphics!
-      else if(parts[0] === "canvas"){
-        this.#isl_canvas(parts[1], parts[2])
-      }
-      //    shapes
-      else if(parts[0] === "rectangle"){
-        if(!this.disallowIndependentGraphics){
-          if(this.#bufferedGraphics){
-            this.#drawBuffer.push({type: this.#isl_rect, params: [parts[1], parts[2], parts[3], parts[4], parts[5]], options: structuredClone(this.#canvasSettings), labels: this.#currentLabels})
-          }
-          else{
-            this.#isl_rect(parts[1], parts[2], parts[3], parts[4], parts[5])
-          }
-        }
-      }
-      else if(parts[0] === "circle"){
-        if(!this.disallowIndependentGraphics){
-          if(this.#bufferedGraphics){
-            this.#drawBuffer.push({type: this.#isl_circle, params: [parts[1], parts[2], parts[3], parts[4]], options: structuredClone(this.#canvasSettings), labels: this.#currentLabels})
-          }
-          else{
-            this.#isl_circle(parts[1], parts[2], parts[3], parts[4])
-          }
-        }
-      }
-      else if(parts[0] === "ellipse"){
-        if(!this.disallowIndependentGraphics){
-          if(this.#bufferedGraphics){
-            this.#drawBuffer.push({type: this.#isl_ellipse, params: [parts[1], parts[2], parts[3], parts[4]], options: structuredClone(this.#canvasSettings), labels: this.#currentLabels})
-          }
-          else{
-            this.#isl_ellipse(parts[1], parts[2], parts[3], parts[4])
-          }
-        }
-      }
-      else if(parts[0] === "text"){
-        if(!this.disallowIndependentGraphics){
-          if(this.#bufferedGraphics){
-            this.#drawBuffer.push({type: this.#isl_text, params: [parts[1], parts[2], parts[3], parts[4], parts[5]], options: structuredClone(this.#canvasSettings), labels: this.#currentLabels})
-          }
-          else{
-            this.#isl_text(parts[1], parts[2], parts[3], parts[4], parts[5])
-          }
-        }
-      }
-      else if(parts[0] === "background"){
-        if(!this.disallowIndependentGraphics){
-          if(this.#bufferedGraphics){
-            this.#drawBuffer.push({type: this.#isl_bg, params: [parts[1]], options: structuredClone(this.#canvasSettings), labels: this.#currentLabels})
-          }
-          else{
-            this.#isl_bg(parts[1])
-          }
-        }
-      }
-      else if(parts[0] === "draw"){
-        if(!this.disallowIndependentGraphics){
-          if(this.#bufferedGraphics){
-            this.#isl_draw()
-          }
-        }
-      }
-      //     styling
-      else if(parts[0] === "fill"){
-        if(!this.disallowIndependentGraphics){
-          if(this.#currentLabels.includes("no")){
-            this.#canvasSettings.fillColour = "#00000000"
-          }
-          else{
-            this.#validateStr("fill", ["colour", parts[1]])
-            this.#validateNum("fill", ["alpha", parts[2], "optional"])
-            this.#canvasSettings.fillColour = parts[1]
-            if(typeof parts[2] !== "undefined"){
-              let input = clamp(parts[2], 0, 255).toString(16)
-              if(input.length < 2){
-                input = "0" + input
-              }
-              this.#canvasSettings.fillColour += input
-            }
-          }
-        }
-      }
-      else if(parts[0] === "textsize"){
-        this.#validateNum("textsize", ["size", parts[1]])
-        if(!this.disallowIndependentGraphics){
-          this.#canvasSettings.textSize = parts[1]
-        }
-      }
-      else if(parts[0] === "outline"){
-        if(!this.disallowIndependentGraphics){
-          if(this.#currentLabels.includes("no")){
-            this.#canvasSettings.outlineColour = "#00000000"
-            this.#canvasSettings.outlineWidth = 0
-          }
-          else{
-            this.#validateStr("outline", ["colour", parts[1]])
-            this.#validateNum("outline", ["width", parts[2], "optional"])
-            this.#canvasSettings.outlineColour = parts[1]
-            if(parts[2]){
-              this.#canvasSettings.outlineWidth = parts[2]
-            }
-          }
-        }
-      }
-      //     states and transformations...
-      else if(parts[0] === "save"){ //may not work properly
-        if(!this.disallowIndependentGraphics){
-          this.#getRenderContext().save()
-        }
-      }
-      else if(parts[0] === "restore"){
-        if(!this.disallowIndependentGraphics){
-          this.#getRenderContext().restore()
-        }
-      }
-      //sourcing more isl
-      else if(parts[0] === "source"){
-        
       }
 
       //Custom keywords
@@ -1148,7 +999,7 @@ class ISLInterpreter{
   }
   //Variable Creation
   #isl_declare(declareType, name, initialValue = null, type, functionParameters = []){
-    this.#validateStr("(variable or function declaration)", ["name", name], ["type", type])
+    ISLInterpreter.validateStr("(variable or function declaration)", ["name", name], ["type", type])
     if(declareType === "var"){
       if(type === undefined){
         this.#warn("No type set for variable '"+name+"'!")
@@ -1188,7 +1039,7 @@ class ISLInterpreter{
   }
   //uh, BYE
   #isl_delete(name){
-    this.#validateStr("delete", ["variable", name])
+    ISLInterpreter.validateStr("delete", ["variable", name])
     if(!this.#doesVarExist(name)){
       throw new ISLError("Cannot delete nonexistent variable '"+name+"'", ReferenceError)
     }
@@ -1198,7 +1049,7 @@ class ISLInterpreter{
   }
   //Functions
   #isl_end(name){
-    this.#validateStr("end", ["name", name])
+    ISLInterpreter.validateStr("end", ["name", name])
     if(!this.#doesFuncExist(name)){
       throw new ISLError("Function '"+name+"' does not exist!", ReferenceError)
     }
@@ -1218,7 +1069,7 @@ class ISLInterpreter{
     }
   }
   #isl_execute(func, ...inParameters){
-    this.#validateStr("execute", ["name", func])
+    ISLInterpreter.validateStr("execute", ["name", func])
     if(!this.#doesFuncExist(func)){
       throw new ISLError("Function '"+func+"' does not exist!", ReferenceError)
     }
@@ -1238,7 +1089,7 @@ class ISLInterpreter{
   }
   //Variable Manipulation: Binary operators
   #isl_add(variable, value){
-    this.#validateStr("add", ["variable", variable])
+    ISLInterpreter.validateStr("add", ["variable", variable])
     if(this.#doesVarExist(variable)){
       if(value){
         const varToModify = this.#getVarObj(variable)
@@ -1254,8 +1105,8 @@ class ISLInterpreter{
     }
   }
   #isl_sub(variable, value){
-    this.#validateStr("subtract", ["variable", variable])
-    this.#validateNum("subtract", ["value", value])
+    ISLInterpreter.validateStr("subtract", ["variable", variable])
+    ISLInterpreter.validateNum("subtract", ["value", value])
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(this.#staticTypes && varToModify.type !== "number"){
@@ -1269,8 +1120,8 @@ class ISLInterpreter{
     }
   }
   #isl_mult(variable, value){
-    this.#validateStr("multiply", ["variable", variable])
-    this.#validateNum("multiply", ["value", value])
+    ISLInterpreter.validateStr("multiply", ["variable", variable])
+    ISLInterpreter.validateNum("multiply", ["value", value])
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(this.#staticTypes && varToModify.type !== "number"){
@@ -1284,8 +1135,8 @@ class ISLInterpreter{
     }
   }
   #isl_exp(variable, value){
-    this.#validateStr("exponent", ["variable", variable])
-    this.#validateNum("exponent", ["value", value])
+    ISLInterpreter.validateStr("exponent", ["variable", variable])
+    ISLInterpreter.validateNum("exponent", ["value", value])
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(this.#staticTypes && varToModify.type !== "number"){
@@ -1299,8 +1150,8 @@ class ISLInterpreter{
     }
   }
   #isl_root(variable, value){
-    this.#validateStr("root", ["variable", variable])
-    this.#validateNum("root", ["value", value])
+    ISLInterpreter.validateStr("root", ["variable", variable])
+    ISLInterpreter.validateNum("root", ["value", value])
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(this.#staticTypes && varToModify.type !== "number"){
@@ -1314,8 +1165,8 @@ class ISLInterpreter{
     }
   }
   #isl_div(variable, value){ //Now with static typing!
-    this.#validateStr("divide", ["variable", variable])
-    this.#validateNum("divide", ["value", value])
+    ISLInterpreter.validateStr("divide", ["variable", variable])
+    ISLInterpreter.validateNum("divide", ["value", value])
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(this.#staticTypes && varToModify.type !== "number"){
@@ -1329,7 +1180,7 @@ class ISLInterpreter{
     }
   }
   #isl_set(variable, value){
-    this.#validateStr("set", ["variable", variable])
+    ISLInterpreter.validateStr("set", ["variable", variable])
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(this.#staticTypes && varToModify.type !== typeof value){
@@ -1343,7 +1194,7 @@ class ISLInterpreter{
   }
   //Variable Manipulation: Unary operators
   #isl_round(variable){
-    this.#validateStr("round", ["variable", variable])
+    ISLInterpreter.validateStr("round", ["variable", variable])
     if(this.#doesVarExist(variable)){
       let v = this.#getVarObj(variable)
       const varToModify = this.#getVarObj(variable)
@@ -1360,7 +1211,7 @@ class ISLInterpreter{
     }
   }
   #isl_negate(variable){
-    this.#validateStr("negate", ["variable", variable])
+    ISLInterpreter.validateStr("negate", ["variable", variable])
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(this.#staticTypes && varToModify.type != "number"){
@@ -1380,7 +1231,7 @@ class ISLInterpreter{
     this.#console.push(value)
   }
   #isl_webprompt(variable, value){
-    this.#validateStr("webprompt", ["variable", variable])
+    ISLInterpreter.validateStr("webprompt", ["variable", variable])
     if(ISLInterpreter.#webEnvironments.includes(this.environment)){
       if(this.#doesVarExist(variable)){
         let v = this.#getVarObj(variable)
@@ -1393,7 +1244,7 @@ class ISLInterpreter{
     }
   }
   #isl_awaitkey(variable, type = "set"){
-    this.#validateStr("awaitkey", ["variable",variable], ["type", type])
+    ISLInterpreter.validateStr("awaitkey", ["variable",variable], ["type", type])
     if(ISLInterpreter.#webEnvironments.includes(this.environment)){
       if(this.#doesVarExist(variable)){
         this.#listeningForKeyPress = true
@@ -1409,7 +1260,7 @@ class ISLInterpreter{
     }
   }
   #isl_getkeys(variable, type = "set"){
-    this.#validateStr("getkeys", ["variable",variable], ["type", type])
+    ISLInterpreter.validateStr("getkeys", ["variable",variable], ["type", type])
     if(ISLInterpreter.#webEnvironments.includes(this.environment)){
       if(this.#doesVarExist(variable)){
         let keys = Object.getOwnPropertyNames(this.#pressed)
@@ -1445,7 +1296,7 @@ class ISLInterpreter{
   }
   //Flow Control
   #isl_if(val1, operator, val2, code){
-    this.#validateStr("if", ["operator",operator])
+    ISLInterpreter.validateStr("if", ["operator",operator])
     if(this.#operate(val1, operator, val2)){
       if(this.#debug) console.log("condition met, executing {"+code.join(" ")+"}")
       this.#executeStatement(code)
@@ -1457,7 +1308,7 @@ class ISLInterpreter{
   //Program Interface
   #isl_export(local, external){
     if(this.allowExport){
-      this.#validateStr("export", ["external",external], ["local",local])
+      ISLInterpreter.validateStr("export", ["external",external], ["local",local])
       if(ISLInterpreter.#webEnvironments.includes(this.environment)){
         if(this.#doesVarExist(local)){
           this.#setVariableFromFullPath(external, this.getVar(local))
@@ -1473,7 +1324,7 @@ class ISLInterpreter{
   }
   #isl_import(external, local){
     if(this.allowImport){
-      this.#validateStr("import", ["external",external], ["local",local])
+      ISLInterpreter.validateStr("import", ["external",external], ["local",local])
       if(ISLInterpreter.#webEnvironments.includes(this.environment)){
         if(this.#doesVarExist(local)){
           const newValue = this.#getVariableFromFullPath(external)
@@ -1488,264 +1339,28 @@ class ISLInterpreter{
       this.#handleDisallowedOperation("Import of "+external+".")
     }
   }
-  #isl_canvas(width, height){
-    if(!this.disallowIndependentGraphics){
-      this.#validateNum("canvas", ["width", width], ["height", height])
-      if(ISLInterpreter.#webEnvironments.includes(this.environment)){
-        if(typeof width === "number" && typeof height === "number"){
-          const cnv = this.#canvas ?? ISLInterpreter.#createHTMLElement("canvas")
-          if(this.#debug){
-            if(this.#canvas){
-              this.#log("Resized canvas to:", cnv)
-            }
-            else{
-              this.#log("Created canvas:", cnv)
-            }
-          }
-          this.#canvas = cnv
-          cnv.setAttribute("width", width)
-          cnv.setAttribute("height", height)
-          cnv.onmousemove = event => {this.#mouseMoved(event)}
-        }
-        else{
-          if(typeof width === "number"){
-            throw new ISLError("Canvas height must be a number, got "+ typeof height, TypeError)
-          }
-          else{
-            throw new ISLError("Canvas width must be a number, got "+ typeof width, TypeError)
-          }
-        }
-      }
-    }
-    else{
-      this.#handleDisallowedOperation("Canvas creation/resize")
-    }
-  }
-  #isl_rect(x, y, width, height){
-    this.#validateNum("rectangle", ["x",x], ["y", y], ["width", width], ["height", height])
-    const context = this.#getRenderContext()
-    {
-      x -= width/2
-      y -= height/2
-      if(this.#currentLabels.includes("aligned")){
-        if(this.#currentLabels.includes("left")){
-          x += width/2
-        }
-        else if(this.#currentLabels.includes("right")){
-          x -= width
-        }
-        else{
-          throw new ISLError("'aligned' requires a direction: 'left' or 'right'", SyntaxError)
-        }
-      }
-    }
-    {
-      context.beginPath();
-      context.lineWidth = this.#canvasSettings.outlineWidth;
-      context.strokeStyle = this.#canvasSettings.outlineColour ?? "#ff0000";
-      context.fillStyle = this.#canvasSettings.fillColour ?? "#ff0000";
-      context.rect(x, y, width, height);
-      let drawn = false
-      if(this.#currentLabels.includes("filled")){
-        context.fill();
-        drawn = true
-      }
-      if(this.#currentLabels.includes("hollow")){
-        context.stroke();
-        drawn = true
-      }
-      if(!drawn){
-        context.fill();
-        context.stroke();
-      }
-    }
-  }
-  #isl_circle(x, y, radius){
-    this.#validateNum("circle", ["x",x], ["y", y], ["radius", radius])
-    const context = this.#getRenderContext()
-    {
-      if(this.#currentLabels.includes("aligned")){
-        if(this.#currentLabels.includes("left")){
-          x += width/2
-        }
-        else if(this.#currentLabels.includes("right")){
-          x -= width/2
-        }
-        else{
-          throw new ISLError("'aligned' requires a direction: 'left' or 'right'", SyntaxError)
-        }
-      }
-    }
-    {
-      context.beginPath();
-      context.lineWidth = this.#canvasSettings.outlineWidth;
-      context.strokeStyle = this.#canvasSettings.outlineColour ?? "#ff0000";
-      context.fillStyle = this.#canvasSettings.fillColour ?? "#ff0000";
-      context.arc(x, y, radius, 0, Math.PI * 2);
-      let drawn = false
-      if(this.#currentLabels.includes("filled")){
-        context.fill();
-        drawn = true
-      }
-      if(this.#currentLabels.includes("hollow")){
-        context.stroke();
-        drawn = true
-      }
-      if(!drawn){
-        context.fill();
-        context.stroke();
-      }
-    }
-  }
-  #isl_ellipse(x, y, width, height){
-    this.#validateNum("ellipse", ["x",x], ["y", y], ["width", width], ["height", height])
-    const context = this.#getRenderContext()
-    {
-      if(this.#currentLabels.includes("aligned")){
-        if(this.#currentLabels.includes("left")){
-          x += width/2
-        }
-        else if(this.#currentLabels.includes("right")){
-          x -= width/2
-        }
-        else{
-          throw new ISLError("'aligned' requires a direction: 'left' or 'right'", SyntaxError)
-        }
-      }
-    }
-    {
-      context.beginPath();
-      context.lineWidth = this.#canvasSettings.outlineWidth;
-      context.strokeStyle = this.#canvasSettings.outlineColour ?? "#ff0000";
-      context.fillStyle = this.#canvasSettings.fillColour ?? "#ff0000";
-      context.ellipse(x, y, width/2, height/2, 0, 0, Math.PI * 2,);
-      let drawn = false
-      if(this.#currentLabels.includes("filled")){
-        context.fill();
-        drawn = true
-      }
-      if(this.#currentLabels.includes("hollow")){
-        context.stroke();
-        drawn = true
-      }
-      if(!drawn){
-        context.fill();
-        context.stroke();
-      }
-    }
-  }
-  #isl_text(x, y, text, maxWidth = undefined){
-    this.#validateNum("text", ["x", x], ["y", y])
-    this.#validateStr("text", ["text", text])
-    if(typeof maxWidth !== "number" && typeof maxWidth !== "undefined"){
-      throw new ISLError("'text' expects a number or undefined for argument 'maxWidth', got"+typeof maxWidth, TypeError)
-    }
-    const context = this.#getRenderContext()
-    context.font = (this.#canvasSettings.textSize ?? 20)+"px "+(this.#canvasSettings.textFont ?? "Arial")
-    const textmetrics = context.measureText(text)
-    let width = textmetrics.width
-    let height = textmetrics.actualBoundingBoxDescent + textmetrics.actualBoundingBoxAscent
-    {
-      x -= width/2
-      y += height/2
-      if(this.#currentLabels.includes("aligned")){
-        if(this.#currentLabels.includes("left")){
-          x += width/2
-        }
-        else if(this.#currentLabels.includes("right")){
-          x -= width
-        }
-        else{
-          throw new ISLError("'aligned' requires a direction: 'left' or 'right'", SyntaxError)
-        }
-      }
-    }
-    {
-      context.lineWidth = this.#canvasSettings.outlineWidth;
-      context.strokeStyle = this.#canvasSettings.outlineColour ?? "#ff0000";
-      context.fillStyle = this.#canvasSettings.fillColour ?? "#ff0000";
-      if(this.#debug){
-        this.#log("text", text, "at", x, y, "max width", maxWidth, "font", context.font, context.fillStyle)
-      }
-      let drawn = false
-      if(this.#currentLabels.includes("filled")){
-        context.fillText(text, x, y, maxWidth);
-        drawn = true
-      }
-      if(this.#currentLabels.includes("hollow")){
-        context.strokeText(text, x, y, maxWidth);
-        drawn = true
-      }
-      if(!drawn){
-        context.fillText(text, x, y, maxWidth);
-        context.strokeText(text, x, y, maxWidth);
-      }
-    }
-  }
-  #isl_bg(colour){
-    this.#validateStr("background", ["colour", colour])
-    const context = this.#getRenderContext()
-    context.beginPath();
-    context.fillStyle = colour ?? "#000000";
-    context.rect(0, 0, this.#getCanvas().getAttribute("width"), this.#getCanvas().getAttribute("height"));
-    context.fill();
-  }
-  #isl_draw(){
-    const len = this.#drawBuffer.length
-    for(let i = 0; i < len; i++){
-      let operation = this.#drawBuffer[i]
-      Object.assign(this.#canvasSettings, operation.options)
-      this.#currentLabels = operation.labels
-      operation.type.apply(this, operation.params)
-    }
-    this.#drawBuffer = []
-  }
-
-
-  // move these to the top
-  static #createHTMLElement(type, id){
-    const eleFirstCheck = document.getElementById(id)
-    if(!eleFirstCheck){
-      const ele = document.createElement(type);
-      if(id) ele.id = id
-      document.body.appendChild(ele)
-      return ele
-    }
-    return eleFirstCheck
-  }
-  #getCanvas(){
-    return this.#canvas //?? document.getElementById("isl-cnv")
-  }
-  /**
-   * @returns {CanvasRenderingContext2D}
-   */
-  #getRenderContext(){
-    return this.#getCanvas()?.getContext("2d")
-  }
+  
   /** Validator for number inputs.
    * @param {string} keyword The name of the keyword
    * @param {...[string, *]} inputs List of inputs, in the form [name, value]
   */
-  #validateNum(keyword, ...inputs){
-    this.#validate(keyword, "number", ...inputs)
+  static validateNum(keyword, ...inputs){
+    ISLInterpreter.#validate(keyword, "number", ...inputs)
   }
   /** Validator for string inputs.
    * @param {string} keyword The name of the keyword
    * @param {...[string, *]} inputs List of inputs, in the form [name, value]
   */
-  #validateStr(keyword, ...inputs){
-    this.#validate(keyword, "string", ...inputs)
+  static validateStr(keyword, ...inputs){
+    ISLInterpreter.#validate(keyword, "string", ...inputs)
   }
   /** Validator for any inputs.
    * @param {string} keyword The name of the keyword
    * @param {string} type The enforced type.
    * @param {...[string, *, (string|undefined)]} inputs List of inputs, in the form [name, value]. A third element can be added, which affects that input. "optional" makes type "undefined" acceptable.
   */
-  #validate(keyword, type, ...inputs){
+  static #validate(keyword, type, ...inputs){
     for(let i of inputs){
-      if(this.#debug){
-        console.log("validate", i.slice(0, 2), "mode = ", i[2] ?? "default")
-      }
       if(i[2] === "optional"){
         if(typeof i[1] !== type && typeof i[1] !== "undefined"){
           throw new ISLError("'"+keyword+"' expects type '"+type+"' or empty for argument "+i[0]+", got '"+typeof i[1]+"' ('"+i[1]+"')", TypeError)
@@ -1762,7 +1377,7 @@ class ISLInterpreter{
 
   
   defineISLKeyword(...inputs){
-    console.warn("Use of defineISLKeyword is no longer supported, use extensions instead.")
+    this.#warn("Keyword '"+inputs[0]+"' not imported: Use of defineISLKeyword is no longer supported, use extensions instead.")
   }
 
   /**

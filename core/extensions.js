@@ -74,4 +74,4 @@ class ISLExtension{
   }
 }
 
-export default ISLExtension
+export { ISLExtension }
