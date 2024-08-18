@@ -333,11 +333,13 @@ class ISLInterpreter{
     }
   }
   /**
-   * Starts execution of loaded ISL with a specified speed.
-   * @param {Number} speed Number of milliseconds between each execution.
+   * Starts execution of loaded ISL with a specified speed and IPT.
+   * @param {Number} speed Number of milliseconds between each execution 'tick'.
+   * @param {Number} ipt IPT, or 'instructions per tick', to run.
    */
-  startExecution(speed = 10){
+  startExecution(speed = 10, ipt = this.#instructionsAtOnce){
     this.executeSpeed = speed
+    this.#instructionsAtOnce = ipt
     if(this.#debug){
       this.#log("Executing at "+Math.round((1000/speed*this.#instructionsAtOnce)*100)/100 + " instructions per second")
     }
