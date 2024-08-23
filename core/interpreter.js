@@ -19,9 +19,12 @@ Has a custom error handler to give better information about ISL errors and their
  * General interpreter to run ISL code with. Runs by default in the environment `js`.
  */
 class ISLInterpreter{
-  //Env stuff
-  /** All environments that support things such as HTML graphics */
-  static #webEnvironments = ["web", "moab-adventure-js", "js"]
+  static #deprecated = {
+    webprompt: {replacements: ["'popup-input'"], type: "renamed", display: "'webprompt'"},
+    declare: {replacements: ["'string'", "'function'", "'number'"], type: "split", display: "'declare var/cmd'"}
+  }
+  #warnedFor = []
+
   environment = "js"
 
   //ISL meta
@@ -161,6 +164,7 @@ class ISLInterpreter{
     this.#onerror = options.onerror ?? this.#onerror
     this.#onwarn = options.onwarn ?? this.#onwarn
     this.#onlog = options.onlog ?? this.#onlog
+
     //document.onmousemove = event => {this.mouseMoved(event)}
   }
 
@@ -169,20 +173,39 @@ class ISLInterpreter{
     this.stopExecution();
     if(this.#reportErrors){
       this.#error(
-        (error instanceof ISLError)?
+        this.#nameString+" "+
+        ((error instanceof ISLError)?
         ("Error detected; execution halted\n"+
-        error.message+"\n  -> line "+this.#lastErrorLine+" in "+this.#filename+
-        "\nDetails: \n  Error Type: "+error.type.name+
+        (error.message.length > 0?error.message:"(No message provided)")+"\n  -> line "+this.#lastErrorLine+" in "+this.#filename+
+        "\nDetails: \n  Error Type: "+(error.type?.name??"unknown")+
         "\n  Stacktrace: \n"+ this.#stacktrace+
         "\n\nRun with options.reportErrors = false to hide this and all further errors from this interpreter"):
+        error instanceof Error?
         ("Error detected; execution halted\n"+
           "Internal "+error.constructor.name+"\nwhile running line "+this.#lastErrorLine+" in "+this.#filename+":"+
-          "\n '"+error.message+"'"+
+          "\n "+(error.message.length > 0?"'"+error.message+"'":"(No message provided)")+
           "\nDetails: \n  Error Type: "+error.constructor.name+
-          "\n  Interpreter Stacktrace:\n"+ error.stack.split("\n").slice(1).join("\n")+
-          "\n\nRun with options.reportErrors = false to hide this and all further errors from this interpreter")
+          "\n  Interpreter Stacktrace:\n"+ error.stack.split("\n").slice(1).join("\n"))+
+          (this.#extensions.length > 0?"\n  Installed Extensions:\n   - "+ this.#extensions.map(x => x.id + " ("+(x.source??"unknown source")+")").join("\n   - ")+
+          "\n\nCheck if an extension is causing your problem. If so, try opening an issue on their page, or contacting their support."
+          :"\n  No extensions installed")+
+          "\n\nIf that doesn't work, or it's not caused by an extension, open an issue at https://github.com/LightningLaser8/ISL/issues to get this fixed.":error)
       )
     }
+  }
+
+  #handleDeprecatedFeature(feature, type){
+    if(!ISLInterpreter.#deprecated.hasOwnProperty(feature)) return false;
+    const featObj = ISLInterpreter.#deprecated[feature]
+    this.#warnOnce("df:"+feature+":"+type, "Deprecated feature used: "+featObj.display+" ("+type+", line "+this.#pc+")"+"\nFeature has been "+featObj.type+".\n"+(featObj.replacements?(featObj.replacements.length > 1?("Use "+featObj.replacements.slice(0, -1).join(", ")+" or "+featObj.replacements.at(-1)+" instead."):"Use "+featObj.replacements[0]+" instead."):"Do not use."))
+    return true;
+  }
+
+  #warnOnce(warnID, ...msg){
+    if(this.#warnedFor.includes("."+warnID+"|"+this.#pc)) return;
+    this.#warn(...msg)
+    this.#warnedFor.push("."+warnID+"|"+this.#pc)
+    console.log(this.#warnedFor)
   }
 
   #callErrorCallback(error){
@@ -722,36 +745,49 @@ class ISLInterpreter{
       return test
     }
   }
-  /**
-   * Logs to the browser's console. Affected by options.silenced, and prefixes the message with the interpreter's name.
-   * @param {*[]} msg 
-   */
   #log(...msg){
     this.#onlog(...msg)
+  }
+  /**
+   * Sends a message to the log handler. Affected by options.silenced, and (by default) prefixes the message with the interpreter's name.
+   * @param {*[]} msg 
+   */
+  log(...msg){
+    if(!this.#silenced){
+      this.#log(...msg)
+    }
   }
   #defaultLog(...msg){
     if(!this.#silenced){
       console.log(this.#nameString, ...msg)
     }
   }
+  #warn(...msg){
+    if(!this.#silenced){
+      this.#onwarn(...msg)
+    }
+  }
   /**
-   * Sends a warning to the browser's console. Affected by options.silenced, and prefixes the message with the interpreter's name.
+   * Sends a warning to the warning handler. Affected by options.silenced, (by default) and prefixes the message with the interpreter's name.
    * @param {*[]} msg 
    */
-  #warn(...msg){
-    this.#onwarn(...msg)
+  warn(...msg){
+    this.#warn(...msg)
   }
   #defaultWarn(...msg){
     if(!this.#silenced){
       console.warn(this.#nameString, ...msg)
     }
   }
-  /**
-   * Sends an error to the built-in error handler. Affected by options.silenced, and prefixes the message with the interpreter's name.
-   * @param {Error | string} msg 
-   */
   #error(msg){
     this.#callErrorCallback(msg)
+  }
+  /**
+   * Sends an error to the error handler. Affected by options.silenced. Default stacktrace includes the interpreter's name. For ISL code error handling, use ISLError. For internal errors, use any other Error.
+   * @param {Error | string} msg 
+   */
+  error(msg){
+    this.#handleError(msg)
   }
   #handleKey(event, variable, type = "set"){
     if(this.#listeningForKeyPress){
@@ -852,9 +888,9 @@ class ISLInterpreter{
       }
     }
     else{
+      if(this.#handleDeprecatedFeature(parts[0], "keyword")) return;
       //Variable Creation
       if(parts[0] === "declare"){
-        this.#warn("Use of the deprecated `declare var` statement")
         this.#isl_declare(parts[1], parts[2])
       }
       else if(parts[0] === "var"){
@@ -920,8 +956,8 @@ class ISLInterpreter{
           this.#flush()
         }
       }
-      else if(parts[0] === "webprompt"){
-        this.#isl_webprompt(parts[1], parts[2])
+      else if(parts[0] === "popup-input"){
+        this.#isl_popup_input(parts[1], parts[2])
       }
       else if(parts[0] === "awaitkey"){
         this.#isl_awaitkey(parts[1], parts[2])
@@ -1001,10 +1037,10 @@ class ISLInterpreter{
   }
   //Variable Creation
   #isl_declare(declareType, name, initialValue = null, type, functionParameters = []){
-    ISLInterpreter.validateStr("(variable or function declaration)", ["name", name], ["type", type])
+    ISLInterpreter.validateStr("(variable or function declaration)", ["name", name])
     if(declareType === "var"){
       if(type === undefined){
-        this.#warn("No type set for variable '"+name+"'!")
+        this.#warnOnce("notype","No type set for variable '"+name+"' (declared line "+this.#pc+")")
       }
       if(this.#doesVarExist(name) && this.#hasVarBeenDeclaredInCurrentRun(name)){
         throw new ISLError("Cannot redeclare local variable '"+name+"'", ReferenceError)
@@ -1232,68 +1268,62 @@ class ISLInterpreter{
   #isl_log(value){
     this.#console.push(value)
   }
-  #isl_webprompt(variable, value){
-    ISLInterpreter.validateStr("webprompt", ["variable", variable])
-    if(ISLInterpreter.#webEnvironments.includes(this.environment)){
-      if(this.#doesVarExist(variable)){
-        let v = this.#getVarObj(variable)
-        const newValue = ISLInterpreter.#tryToNum(prompt(value))
-        this.#isl_set(variable, newValue)
-      }
-      else{
-        throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
-      }
+  #isl_popup_input(variable, value){
+    ISLInterpreter.validateStr("popup-input", ["variable", variable])
+    if(this.#doesVarExist(variable)){
+      let v = this.#getVarObj(variable)
+      const newValue = ISLInterpreter.#tryToNum(prompt(value))
+      this.#isl_set(variable, newValue)
+    }
+    else{
+      throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
     }
   }
   #isl_awaitkey(variable, type = "set"){
     ISLInterpreter.validateStr("awaitkey", ["variable",variable], ["type", type])
-    if(ISLInterpreter.#webEnvironments.includes(this.environment)){
-      if(this.#doesVarExist(variable)){
-        this.#listeningForKeyPress = true
-        if(this.#debug){
-          this.#log("Awaiting key press...")
-        }
-        this.#listenerTarget = variable
-        this.#listenerManipulationType = type
+    if(this.#doesVarExist(variable)){
+      this.#listeningForKeyPress = true
+      if(this.#debug){
+        this.#log("Awaiting key press...")
       }
-      else{
-        throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
-      }
+      this.#listenerTarget = variable
+      this.#listenerManipulationType = type
+    }
+    else{
+      throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
     }
   }
   #isl_getkeys(variable, type = "set"){
     ISLInterpreter.validateStr("getkeys", ["variable",variable], ["type", type])
-    if(ISLInterpreter.#webEnvironments.includes(this.environment)){
-      if(this.#doesVarExist(variable)){
-        let keys = Object.getOwnPropertyNames(this.#pressed)
-        let output = ""
-        if(this.#currentLabels.includes("grouped")){
-          output = "["+keys.join("|")+"]"
-        }
-        else{
-          output = keys.join(",")
-        }
-        const varToModify = this.#getVarObj(variable)
-        if(this.#staticTypes && varToModify.type != "string"){
-          throw new ISLError("Variable with type '"+varToModify.type+"' cannot be set to value with type 'string'", TypeError)
-        }
-        else{
-          varToModify.type = "string"
-        }
-
-        if(type === "add"){
-          varToModify.value += output
-        }
-        else if(type === "set"){
-          varToModify.value = output
-        }
-        else{
-          throw new ISLError("Type "+type+" for 'getkeys' not recognised, should be 'add' or 'set'", SyntaxError)
-        }
+    if(this.#doesVarExist(variable)){
+      let keys = Object.getOwnPropertyNames(this.#pressed)
+      let output = ""
+      if(this.#currentLabels.includes("grouped")){
+        output = "["+keys.join("|")+"]"
       }
       else{
-        throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
+        output = keys.join(",")
       }
+      const varToModify = this.#getVarObj(variable)
+      if(this.#staticTypes && varToModify.type != "string"){
+        throw new ISLError("Variable with type '"+varToModify.type+"' cannot be set to value with type 'string'", TypeError)
+      }
+      else{
+        varToModify.type = "string"
+      }
+
+      if(type === "add"){
+        varToModify.value += output
+      }
+      else if(type === "set"){
+        varToModify.value = output
+      }
+      else{
+        throw new ISLError("Type "+type+" for 'getkeys' not recognised, should be 'add' or 'set'", SyntaxError)
+      }
+    }
+    else{
+      throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
     }
   }
   //Flow Control
@@ -1311,13 +1341,11 @@ class ISLInterpreter{
   #isl_export(local, external){
     if(this.allowExport){
       ISLInterpreter.validateStr("export", ["external",external], ["local",local])
-      if(ISLInterpreter.#webEnvironments.includes(this.environment)){
-        if(this.#doesVarExist(local)){
-          this.#setVariableFromFullPath(external, this.getVar(local))
-        }
-        else{
-          throw new ISLError("Variable '"+local+"' does not exist!", ReferenceError)
-        }
+      if(this.#doesVarExist(local)){
+        this.#setVariableFromFullPath(external, this.getVar(local))
+      }
+      else{
+        throw new ISLError("Variable '"+local+"' does not exist!", ReferenceError)
       }
     }
     else{
@@ -1327,14 +1355,12 @@ class ISLInterpreter{
   #isl_import(external, local){
     if(this.allowImport){
       ISLInterpreter.validateStr("import", ["external",external], ["local",local])
-      if(ISLInterpreter.#webEnvironments.includes(this.environment)){
-        if(this.#doesVarExist(local)){
-          const newValue = this.#getVariableFromFullPath(external)
-          this.#isl_set(local, newValue)
-        }
-        else{
-          throw new ISLError("Variable '"+local+"' does not exist!", ReferenceError)
-        }
+      if(this.#doesVarExist(local)){
+        const newValue = this.#getVariableFromFullPath(external)
+        this.#isl_set(local, newValue)
+      }
+      else{
+        throw new ISLError("Variable '"+local+"' does not exist!", ReferenceError)
       }
     }
     else{
@@ -1365,11 +1391,11 @@ class ISLInterpreter{
     for(let i of inputs){
       if(i[2] === "optional"){
         if(typeof i[1] !== type && typeof i[1] !== "undefined"){
-          throw new ISLError("'"+keyword+"' expects type '"+type+"' or empty for argument "+i[0]+", got '"+typeof i[1]+"' ('"+i[1]+"')", TypeError)
+          throw new ISLError("'"+keyword+"' expects type '"+type+"' or empty for argument '"+i[0]+"', got '"+typeof i[1]+"' ('"+i[1]+"')", TypeError)
         }
       }
       else if(typeof i[1] !== type){
-        throw new ISLError("'"+keyword+"' expects type '"+type+"' for argument "+i[0]+", got '"+typeof i[1]+"' ('"+i[1]+"')", TypeError)
+        throw new ISLError("'"+keyword+"' expects type '"+type+"' for argument '"+i[0]+"', got '"+typeof i[1]+"' ('"+i[1]+"')", TypeError)
       }
     }
   }
@@ -1459,6 +1485,8 @@ class ISLInterpreter{
     return false
   }
 }
+
+
 
 function clamp(number, min, max) {
   return Math.min(Math.max(number, min), max);
