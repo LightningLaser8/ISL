@@ -43,7 +43,15 @@ class ISLInterpreter{
 
   //Vars
   #localVariables = {}
-  #globalVariables = {} //These cannot be changed by ISL, they're like constants but custom keywords and events can change them.
+  #globalVariables = {
+    //Mouse variables
+    mleft: {value: 0, type: "number"},
+    mright: {value: 0, type: "number"},
+    mwheel: {value: 0, type: "number"},
+    m4: {value: 0, type: "number"},
+    m5: {value: 0, type: "number"},
+    many: {value: 0, type: "number"}
+  } //These cannot be changed by ISL, they're like constants but custom keywords and events can change them.
   #functions = {}
   #parameters = {}
   #callstack = []
@@ -63,13 +71,14 @@ class ISLInterpreter{
 
   //IO
   #console = new ISLInterpreter.#ISLConsole()
-  
 
   //Listeners, i guess
   #listeningForKeyPress = false
   #listenerTarget
   #listenerManipulationType
   #pressed = {}
+  #mouseButtonsPressed = 0
+  static mouseButtons = ["left", "right", "wheel", "back", "forward"];
 
   //Custom keywords and extensions
   #customKeywords = {}
@@ -160,12 +169,29 @@ class ISLInterpreter{
 
     addEventListener("keydown", event => {this.#handleKey.apply(this, [event, this.#listenerTarget, this.#listenerManipulationType]); this.#keyDown(event) })
     addEventListener("keyup", event => {this.#keyUp(event)})
+    addEventListener("mousedown", event => this.#handleClick(event))
+    addEventListener("mouseup", event => this.#handleClick(event))
 
     this.#onerror = options.onerror ?? this.#onerror
     this.#onwarn = options.onwarn ?? this.#onwarn
     this.#onlog = options.onlog ?? this.#onlog
+  }
+  /**
+   * @param {MouseEvent} event 
+   */
+  #handleClick(event){
+    this.#mouseButtonsPressed = event.buttons??0
+    this.#globalVariables.mleft.value = this.#isMouseButtonPressed("left")?1:0
+    this.#globalVariables.mright.value = this.#isMouseButtonPressed("right")?1:0
+    this.#globalVariables.mwheel.value = this.#isMouseButtonPressed("wheel")?1:0
+    this.#globalVariables.m4.value = this.#isMouseButtonPressed("back")?1:0
+    this.#globalVariables.m5.value = this.#isMouseButtonPressed("forward")?1:0
 
-    //document.onmousemove = event => {this.mouseMoved(event)}
+    this.#globalVariables.many.value = (event.buttons > 0)?1:0
+  }
+
+  #isMouseButtonPressed(buttonName) {
+    return Boolean(this.#mouseButtonsPressed & (1 << ISLInterpreter.mouseButtons.indexOf(buttonName)));
   }
 
   #handleError(error){
