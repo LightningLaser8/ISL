@@ -287,7 +287,7 @@ class GraphicsExtension extends ISLExtension {
     })
     this.addKeyword("text", function(interpreter, labels, x, y, text, maxWidth){
       if(this.#bufferedGraphics){
-        this.#drawBuffer.push({type: this.#isl_ellipse, params: [labels, x, y, text, maxWidth], options: structuredClone(this.#canvasSettings)})
+        this.#drawBuffer.push({type: this.#isl_text, params: [labels, x, y, text, maxWidth], options: structuredClone(this.#canvasSettings)})
       }
       else{
         this.#isl_text(labels, x, y, text, maxWidth)
