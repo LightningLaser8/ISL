@@ -231,7 +231,9 @@ class ISLInterpreter{
     if(this.#warnedFor.includes("."+warnID+"|"+this.#pc)) return;
     this.#warn(...msg)
     this.#warnedFor.push("."+warnID+"|"+this.#pc)
-    console.log(this.#warnedFor)
+    if(this.#debug){
+      console.log("warning ID|line: "+this.#warnedFor)
+    }
   }
 
   #callErrorCallback(error){
@@ -1247,6 +1249,9 @@ class ISLInterpreter{
     ISLInterpreter.validateStr("set", ["variable", variable])
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
+      if(varToModify.type === undefined){
+        varToModify.type = typeof value
+      }
       if(this.#staticTypes && varToModify.type !== typeof value){
         throw new ISLError("Cannot set a variable with type '"+varToModify.type+"' to a '"+typeof value+"'", TypeError)
       }
