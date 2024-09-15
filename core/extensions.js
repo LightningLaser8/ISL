@@ -13,7 +13,7 @@ Extension API.
 Extensions can provide keywords, labels, variables and types to an ISL interpreter.
 */
 /**
- * An ISL extension. Provides a set of custom keywords, variables and types to an interpreter when imported.
+ * An ISL extension. Provides a set of custom keywords, variables, labels and types to an interpreter when imported.
  */
 class ISLExtension{
   #keywords = {}
@@ -75,12 +75,85 @@ class ISLExtension{
     this.#labels.push({label: name, for: [...wordsFor]})
   }
   /**
-   * 
+   * Adds a new type of value to the extension.
    * @param {string} name Name of this new type.
    * @param {(value) => boolean} validator Function to validate type. Should return true if the input matches type, false if not. If left out, any input will be valid.
    */
   addType(name, validator = (value) => true){
-    this.#types.push({name: name, validator: validator})
+    const type = {name: name, validator: validator}
+    this.#types.push(type)
+    return type
+  }
+
+  /** Quick ways to perform complex or tedious operations with an extension. */
+  shortcuts = {
+    /**
+       * Quick shortcut to enum-style types: Types where a value must be one of a list of options. This isn't actually an enumerated type, but behaves similarly enough.
+       * @param {string} name Name of this type.
+       * @param {any[]} possibleValues The possible values that are valid for this type. Strings are recommended.
+       */
+    addEnumType: (name, possibleValues) => {
+      const type = {name: name, validator: value => possibleValues.includes(value)}
+      this.#types.push(type)
+      return type
+    },
+    /**
+     * Shortcut to making types that combine multiple others, with a 'union' operation i.e. any condition can be met.
+     * @param {string} name Name of this type.
+     * @param  {...{name: string, validator: (value: *) => boolean}} types Type objects to combine into one.
+     */
+    addCombinedType: (name, ...types) => {
+      const type = {name: name, validator: value => {
+        for(let type of types){
+          if(!type.validator) continue;
+          if(type.validator()) return true;
+        }
+        return false;
+      }}
+      this.#types.push(type)
+      return type
+    },
+    /**
+     * Creates a keyword and global variable that are linked i.e. the keyword sets the global variable's value.
+     * @param {*} wordName Name of the keyword.
+     * @param {*} varName Name of the global variable.
+     * @param {*} initialValue Value that the variable is set to initially.
+     * @param {*} type Type of the variable, and the keyword's `value` descriptor.
+     */
+    addLinkedVariable: (wordName, varName, initialValue, type) => {
+      let variable = this.addVariable(varName, initialValue, type)
+      this.addKeyword(wordName, function(interpreter, labels, value){
+        variable.value = value;
+      }, [
+        {type: type, name: "value"}
+      ])
+    },
+    /**
+     * Adds a keyword to perform a unary operation on a variable's value.
+     * @param {string} name Name of the keyword.
+     * @param {(value: any) => *} operation Operation to perform on the variable's value. The variable's new value will be the return value of this function.
+     */
+    addUnaryManipulator: (name, operation) => {
+      this.addKeyword(name, function(interpreter, labels, variable){
+        interpreter.setVar(variable, operation(interpreter.getVar(variable)))
+      },[
+        {type: "variable", name: "target"}
+      ])
+    },
+    /**
+     * Adds a keyword to perform a binary operation on a variable's value using another value.
+     * @param {string} name Name of the keyword.
+     * @param {(varValue: any, inValue: any) => *} operation Operation to perform on the variable's value. The variable's new value will be the return value of this function.
+     * @param {string} type Type of the other value, for validation. (static types)
+     */
+    addBinaryManipulator: (name, operation) => {
+      this.addKeyword(name, function(interpreter, labels, variable, value){
+        interpreter.setVar(variable, operation(interpreter.getVar(variable), value))
+      },[
+        {type: "variable", name: "target"},
+        {type: type, name: "value"},
+      ])
+    }
   }
 }
 
