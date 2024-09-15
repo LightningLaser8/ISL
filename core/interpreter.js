@@ -21,13 +21,20 @@ Has a custom error handler to give better information about ISL errors and their
 class ISLInterpreter{
   //Basically, this describes types and when they are valid
   #validators = {
+    any: value => true,
     string: value => typeof value === "string",
     number: value => typeof value === "number",
     boolean: value => typeof value === "boolean",
     variable: value => typeof value === "string" && value in this.#localVariables,
     global: value => typeof value === "string" && value in this.#globalVariables,
     function: value => typeof value === "string" && value in this.#functions,
-    relpos: value => value[0] === "~" && typeof ISLInterpreter.#restoreOriginalType(value.substring(1)) === "number"
+    relpos: value => value[0] === "~" && this.#validators.number(ISLInterpreter.#restoreOriginalType(value.substring(1))),
+    comparator: value => ["=", "!=", "<", ">", "in"].includes(value),
+    keyword: value => value in this.#defaultKeywords || value in this.#customKeywords,
+    //Weird types
+    VariableManipulationType: value => ["add", "set"].includes(value),
+    VariableDeclarationType: value => ["var", "cmd"].includes(value),
+    LineNumber: value => this.#validators.number(value) || this.#validators.relpos(value)
   }
 
   static #deprecated = {
@@ -561,7 +568,7 @@ class ISLInterpreter{
               part = parts[p]
               {
                 //Explicit parameter references
-                let newPart = part.replaceAll(/:\\[^\\]*\\/g, x => {this.getParameter(x.substring(2, x.length - 1))})
+                let newPart = part.replaceAll(/:\\[^\\]*\\/g, x => {this.#getParameter(x.substring(2, x.length - 1))})
                 parts[p] = newPart
               }
               part = parts[p]
@@ -576,7 +583,7 @@ class ISLInterpreter{
                 let newPart = part.replaceAll(/\\[^\\]*\\/g, x => {
                   let nx = null;
                   if(this.#callstack.length > 0){
-                    try{nx =  this.getParameter(x.substring(1, x.length - 1))}
+                    try{nx =  this.#getParameter(x.substring(1, x.length - 1))}
                     catch(e){
                       nx = this.getVar(x.substring(1, x.length - 1))
                     }
@@ -667,14 +674,14 @@ class ISLInterpreter{
    * @param {String} varName Parameter name to search for.
    * @returns {Number|String} The value of the object corresponding to the name
    */
-  getParameter(varName){
+  #getParameter(varName){
     if(this.#parameters[varName] != null){
       return this.#parameters[varName].value
     }
     throw new ISLError("Parameter '"+varName+"' does not exist!", ReferenceError)
   }
 
-  toParameterObjects(func, parameters){
+  #toParameterObjects(func, parameters){
     if(this.#debug){
       console.log("Input: function:",func,"parameters:",parameters)
     }
@@ -855,7 +862,7 @@ class ISLInterpreter{
       this.#listeningForKeyPress = false
     }
   }
-  #operate(val1, operator, val2){
+  #compare(val1, operator, val2){
     if(this.#debug){
       this.#log(val1 + " " + operator + " " + val2)
     }
@@ -938,118 +945,20 @@ class ISLInterpreter{
     }
     else{
       if(this.#handleDeprecatedFeature(parts[0], "keyword")) return;
-      //Variable Creation
-      if(parts[0] === "declare"){
-        this.#isl_declare(parts[1], parts[2])
-      }
-      else if(parts[0] === "var"){
-        this.#isl_declare("var", parts[1])
-      }
-      else if(parts[0] === "number"){
-        this.#isl_declare("var", parts[1], 0, "number")
-      }
-      else if(parts[0] === "string"){
-        this.#isl_declare("var", parts[1], "", "string")
-      }
-      else if(parts[0] === "function"){
-        this.#isl_declare("cmd", parts[1], undefined, "function", parts.slice(2))
-      }
-      //Variable go bye-bye
-      else if(parts[0] === "delete"){
-        this.#isl_delete(parts[1])
-      }
-      //Functions
-      else if(parts[0] === "end"){
-        this.#isl_end(parts[1], parts[2])
-      }
-      else if(parts[0] === "execute"){
-        this.#isl_execute(parts[1], ...parts.slice(2))
-      }
-      //Variable Manipulation
-      else if(parts[0] === "set"){
-        this.#isl_set(parts[1], parts[2])
-      }
-      else if(parts[0] === "add"){
-        this.#isl_add(parts[1], parts[2])
-      }
-      else if(parts[0] === "subtract"){
-        this.#isl_sub(parts[1], parts[2])
-      }
-      else if(parts[0] === "multiply"){
-        this.#isl_mult(parts[1], parts[2])
-      }
-      else if(parts[0] === "divide"){
-        this.#isl_div(parts[1], parts[2])
-      }
-      else if(parts[0] === "round"){
-        this.#isl_round(parts[1], parts[2])
-      }
-      else if(parts[0] === "exponent"){
-        this.#isl_exp(parts[1], parts[2])
-      }
-      else if(parts[0] === "root"){
-        this.#isl_root(parts[1], parts[2])
-      }
-      else if(parts[0] === "negate"){
-        this.#isl_negate(parts[1])
-      }
-      //IO
-      else if(parts[0] === "log"){
-        this.#isl_log(parts[1])
-      }
-      else if(parts[0] === "flush"){
-        if(this.#currentLabels.includes("separated")){
-          this.#flushSeparate()
-        }
-        else{
-          this.#flush()
-        }
-      }
-      else if(parts[0] === "popup-input"){
-        this.#isl_popup_input(parts[1], parts[2])
-      }
-      else if(parts[0] === "awaitkey"){
-        this.#isl_awaitkey(parts[1], parts[2])
-      }
-      else if(parts[0] === "getkeys"){
-        this.#isl_getkeys(parts[1], parts[2])
-      }
-      //Flow Control
-      else if(parts[0] === "restart"){
-        if(this.#currentLabels.includes("non-destructive")){
-          this.stopExecution()
-        }
-        else{
-          this.#stopExecutionDestructive()
-        }
-        this.startExecution(this.executeSpeed)
-      }
-      else if(parts[0] === "rundelay"){
-        ISLInterpreter.#validateNum("rundelay", ["delay", parts[1]])
-        this.executeSpeed = parts[1] ?? 10
-      }
-      else if(parts[0] === "stop"){
-        this.stopExecution()
-      }
-      else if(parts[0] === "pause"){
-        ISLInterpreter.#validateNum("pause", ["timeout", parts[1]])
-        this.#waits += parts[1]
-      }
-      else if(parts[0] === "if"){
-        this.#isl_if(parts[1], parts[2], parts[3], parts.slice(4))
-      }
-      else if(parts[0] === "jump"){
-        this.#goToLine(parts[1])
-      }
-      
-      //Program Interface
-      else if(parts[0] === "export"){
-        this.#isl_export(parts[1], parts[2])
-      }
-      else if(parts[0] === "import"){
-        this.#isl_import(parts[1], parts[2])
-      }
 
+      //Regular keywords
+      if(this.#defaultKeywords[parts[0]] !== undefined){
+        const keyword = this.#defaultKeywords[parts[0]]
+        const inputs = parts.slice(1)
+        if(keyword.descriptors){
+          let len = keyword.descriptors.length
+          for(let index = 0; index < len; index++){
+            let descriptor = keyword.descriptors[index]
+            this.#validateDescriptor(parts[0], parts[index + 1], descriptor)
+          }
+        }
+        keyword.callback.apply(this, [this.#currentLabels, ...inputs])
+      }
       //Custom keywords
       else if(this.#customKeywords[parts[0]] !== undefined){
         const keyword = this.#customKeywords[parts[0]]
@@ -1093,7 +1002,6 @@ class ISLInterpreter{
   }
   //Variable Creation
   #isl_declare(declareType, name, initialValue = null, type, functionParameters = []){
-    ISLInterpreter.#validateStr("(variable or function declaration)", ["name", name])
     if(declareType === "var"){
       if(type === undefined){
         this.#warnOnce("var.notype","No type set for variable '"+name+"' (declared line "+this.#pc+")")
@@ -1133,7 +1041,6 @@ class ISLInterpreter{
   }
   //uh, BYE
   #isl_delete(name){
-    ISLInterpreter.#validateStr("delete", ["variable", name])
     if(!this.#doesVarExist(name)){
       throw new ISLError("Cannot delete nonexistent variable '"+name+"'", ReferenceError)
     }
@@ -1143,7 +1050,6 @@ class ISLInterpreter{
   }
   //Functions
   #isl_end(name){
-    ISLInterpreter.#validateStr("end", ["name", name])
     if(!this.#doesFuncExist(name)){
       throw new ISLError("Function '"+name+"' does not exist!", ReferenceError)
     }
@@ -1155,7 +1061,7 @@ class ISLInterpreter{
         let previous = this.#callstack.pop() //callstack has {calledFrom: number, func: String, params: Array<String>}
         let continuing = this.#callstack[0] ?? {calledFrom: 0, func: "", params: []}
         this.#counter = previous?.calledFrom ?? this.#counter
-        this.#parameters = this.toParameterObjects(continuing.func, continuing.params)
+        this.#parameters = this.#toParameterObjects(continuing.func, continuing.params)
       }
       else{
         this.#functions[name].ended = true
@@ -1163,7 +1069,6 @@ class ISLInterpreter{
     }
   }
   #isl_execute(func, ...inParameters){
-    ISLInterpreter.#validateStr("execute", ["name", func])
     if(!this.#doesFuncExist(func)){
       throw new ISLError("Function '"+func+"' does not exist!", ReferenceError)
     }
@@ -1174,7 +1079,7 @@ class ISLInterpreter{
       if(this.#debug){
         console.log("Function:",func,"| parameter names:",parameters)
       }
-      this.#parameters = this.toParameterObjects(func, parameters)
+      this.#parameters = this.#toParameterObjects(func, parameters)
       if(this.#debug){
         console.log("parameter state",this.#parameters)
       }
@@ -1183,7 +1088,6 @@ class ISLInterpreter{
   }
   //Variable Manipulation: Binary operators
   #isl_add(variable, value){
-    ISLInterpreter.#validateStr("add", ["variable", variable])
     if(this.#doesVarExist(variable)){
       if(value){
         const varToModify = this.#getVarObj(variable)
@@ -1199,8 +1103,6 @@ class ISLInterpreter{
     }
   }
   #isl_sub(variable, value){
-    ISLInterpreter.#validateStr("subtract", ["variable", variable])
-    ISLInterpreter.#validateNum("subtract", ["value", value])
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(this.#staticTypes && varToModify.type !== "number"){
@@ -1214,8 +1116,6 @@ class ISLInterpreter{
     }
   }
   #isl_mult(variable, value){
-    ISLInterpreter.#validateStr("multiply", ["variable", variable])
-    ISLInterpreter.#validateNum("multiply", ["value", value])
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(this.#staticTypes && varToModify.type !== "number"){
@@ -1229,8 +1129,6 @@ class ISLInterpreter{
     }
   }
   #isl_exp(variable, value){
-    ISLInterpreter.#validateStr("exponent", ["variable", variable])
-    ISLInterpreter.#validateNum("exponent", ["value", value])
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(this.#staticTypes && varToModify.type !== "number"){
@@ -1244,8 +1142,6 @@ class ISLInterpreter{
     }
   }
   #isl_root(variable, value){
-    ISLInterpreter.#validateStr("root", ["variable", variable])
-    ISLInterpreter.#validateNum("root", ["value", value])
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(this.#staticTypes && varToModify.type !== "number"){
@@ -1259,8 +1155,6 @@ class ISLInterpreter{
     }
   }
   #isl_div(variable, value){ //Now with static typing!
-    ISLInterpreter.#validateStr("divide", ["variable", variable])
-    ISLInterpreter.#validateNum("divide", ["value", value])
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(this.#staticTypes && varToModify.type !== "number"){
@@ -1274,7 +1168,6 @@ class ISLInterpreter{
     }
   }
   #isl_set(variable, value){
-    ISLInterpreter.#validateStr("set", ["variable", variable])
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(varToModify.type === undefined){
@@ -1291,7 +1184,6 @@ class ISLInterpreter{
   }
   //Variable Manipulation: Unary operators
   #isl_round(variable){
-    ISLInterpreter.#validateStr("round", ["variable", variable])
     if(this.#doesVarExist(variable)){
       let v = this.#getVarObj(variable)
       const varToModify = this.#getVarObj(variable)
@@ -1308,7 +1200,6 @@ class ISLInterpreter{
     }
   }
   #isl_negate(variable){
-    ISLInterpreter.#validateStr("negate", ["variable", variable])
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(this.#staticTypes && varToModify.type != "number"){
@@ -1328,7 +1219,6 @@ class ISLInterpreter{
     this.#console.push(value)
   }
   #isl_popup_input(variable, value){
-    ISLInterpreter.#validateStr("popup-input", ["variable", variable])
     if(this.#doesVarExist(variable)){
       let v = this.#getVarObj(variable)
       const newValue = ISLInterpreter.#restoreOriginalType(prompt(value))
@@ -1339,7 +1229,6 @@ class ISLInterpreter{
     }
   }
   #isl_awaitkey(variable, type = "set"){
-    ISLInterpreter.#validateStr("awaitkey", ["variable",variable], ["type", type])
     if(this.#doesVarExist(variable)){
       this.#listeningForKeyPress = true
       if(this.#debug){
@@ -1353,7 +1242,6 @@ class ISLInterpreter{
     }
   }
   #isl_getkeys(variable, type = "set"){
-    ISLInterpreter.#validateStr("getkeys", ["variable",variable], ["type", type])
     if(this.#doesVarExist(variable)){
       let keys = Object.getOwnPropertyNames(this.#pressed)
       let output = ""
@@ -1387,8 +1275,7 @@ class ISLInterpreter{
   }
   //Flow Control
   #isl_if(val1, operator, val2, code){
-    ISLInterpreter.#validateStr("if", ["operator",operator])
-    if(this.#operate(val1, operator, val2)){
+    if(this.#compare(val1, operator, val2)){
       if(this.#debug) console.log("condition met, executing {"+code.join(" ")+"}")
       this.#executeStatement(code)
     }
@@ -1399,7 +1286,6 @@ class ISLInterpreter{
   //Program Interface
   #isl_export(local, external){
     if(this.allowExport){
-      ISLInterpreter.#validateStr("export", ["external",external], ["local",local])
       if(this.#doesVarExist(local)){
         this.#setVariableFromFullPath(external, this.getVar(local))
       }
@@ -1413,7 +1299,6 @@ class ISLInterpreter{
   }
   #isl_import(external, local){
     if(this.allowImport){
-      ISLInterpreter.#validateStr("import", ["external",external], ["local",local])
       if(this.#doesVarExist(local)){
         const newValue = this.#getVariableFromFullPath(external)
         this.#isl_set(local, newValue)
@@ -1426,40 +1311,6 @@ class ISLInterpreter{
       this.#handleDisallowedOperation("Import of "+external+".")
     }
   }
-  
-  //DEPRECATED SECTION
-  /** Validator for number inputs.
-   * @param {string} keyword The name of the keyword
-   * @param {...[string, *]} inputs List of inputs, in the form [name, value]
-  */
-  static #validateNum(keyword, ...inputs){
-    ISLInterpreter.#validate(keyword, "number", ...inputs)
-  }
-  /** Validator for string inputs.
-   * @param {string} keyword The name of the keyword
-   * @param {...[string, *]} inputs List of inputs, in the form [name, value]
-  */
-  static #validateStr(keyword, ...inputs){
-    ISLInterpreter.#validate(keyword, "string", ...inputs)
-  }
-  /** Validator for any inputs.
-   * @param {string} keyword The name of the keyword
-   * @param {string} type The enforced type.
-   * @param {...[string, *, (string|undefined)]} inputs List of inputs, in the form [name, value]. A third element can be added, which affects that input. "optional" makes type "undefined" acceptable.
-  */
-  static #validate(keyword, type, ...inputs){
-    for(let i of inputs){
-      if(i[2] === "optional"){
-        if(typeof i[1] !== type && typeof i[1] !== "undefined"){
-          throw new ISLError("'"+keyword+"' expects type '"+type+"' or empty for argument '"+i[0]+"', got '"+typeof i[1]+"' ('"+i[1]+"')", TypeError)
-        }
-      }
-      else if(typeof i[1] !== type){
-        throw new ISLError("'"+keyword+"' expects type '"+type+"' for argument '"+i[0]+"', got '"+typeof i[1]+"' ('"+i[1]+"')", TypeError)
-      }
-    }
-  }
-  //END OF DEPRECATED SECTION
 
   #validateDescriptor(keyword, input, descriptor){
     const actualDescriptor = {
@@ -1476,7 +1327,7 @@ class ISLInterpreter{
       return;
     }
     if(!(actualDescriptor.optional && typeof input === "undefined") && !this.#validators[actualDescriptor.type](input)){
-      throw new ISLError("'"+keyword+"' expects type '"+actualDescriptor.type+"'"+(actualDescriptor.optional?" or nothing":"")+" for input '"+actualDescriptor.name+"', got '"+typeof input+"' ('"+input+"')", TypeError)
+      throw new ISLError("'"+keyword+"' expects type '"+actualDescriptor.type+"'"+(actualDescriptor.optional?" or nothing":"")+" for input '"+actualDescriptor.name+"', got '"+typeof input+"' (given '"+input+"')", TypeError)
     }
   }
 
@@ -1568,9 +1419,228 @@ class ISLInterpreter{
     }
     return false
   }
+  #defaultKeywords = {
+    declare: {
+      callback: (labels, ...inputs) => {this.#isl_declare(inputs[0], inputs[1])},
+      descriptors: [
+        {type: "VariableDeclarationType", name: "type"},
+        {type: "string", name: "name"}
+      ]
+    },
+    var: {
+      callback: (labels, ...inputs) => {this.#isl_declare("var", inputs[0])},
+      descriptors: [
+        {type: "string", name: "name"}
+      ]
+    },
+    number: {
+      callback: (labels, ...inputs) => {this.#isl_declare("var", inputs[0], 0, "number")},
+      descriptors: [
+        {type: "string", name: "name"}
+      ]
+    },
+    string: {
+      callback: (labels, ...inputs) => {this.#isl_declare("var", inputs[0], "", "string")},
+      descriptors: [
+        {type: "string", name: "name"}
+      ]
+    },
+    function: {
+      callback: (labels, ...inputs) => {this.#isl_declare("cmd", inputs[0], undefined, "function", inputs.slice(1))},
+      descriptors: [
+        {type: "string", name: "name"}
+      ]
+    },
+    delete: {
+      callback: (labels, ...inputs) => {this.#isl_delete(inputs[0])},
+      descriptors: [
+        {type: "variable", name: "name"}
+      ]
+    },
+    end: {
+      callback: (labels, ...inputs) => {this.#isl_end(inputs[0])},
+      descriptors: [
+        {type: "function", name: "name"}
+      ]
+    },
+    execute: {
+      callback: (labels, ...inputs) => {this.#isl_execute(inputs[0], ...inputs.slice(1))},
+      descriptors: [
+        {type: "function", name: "name"}
+      ]
+    },
+    set: {
+      callback: (labels, ...inputs) => {this.#isl_set(inputs[0], inputs[1])},
+      descriptors: [
+        {type: "variable", name: "name"},
+        {type: "any", name: "value"}
+      ]
+    },
+    add: {
+      callback: (labels, ...inputs) => {this.#isl_add(inputs[0], inputs[1])},
+      descriptors: [
+        {type: "variable", name: "name"},
+        {type: "any", name: "value"}
+      ]
+    },
+    subtract: {
+      callback: (labels, ...inputs) => {this.#isl_sub(inputs[0], inputs[1])},
+      descriptors: [
+        {type: "variable", name: "name"},
+        {type: "number", name: "value"}
+      ]
+    },
+    multiply: {
+      callback: (labels, ...inputs) => {this.#isl_mult(inputs[0], inputs[1])},
+      descriptors: [
+        {type: "variable", name: "name"},
+        {type: "number", name: "value"}
+      ]
+    },
+    divide: {
+      callback: (labels, ...inputs) => {this.#isl_div(inputs[0], inputs[1])},
+      descriptors: [
+        {type: "variable", name: "name"},
+        {type: "number", name: "value"}
+      ]
+    },
+    round: {
+      callback: (labels, ...inputs) => {this.#isl_round(inputs[0])},
+      descriptors: [
+        {type: "variable", name: "name"}
+      ]
+    },
+    exponent: {
+      callback: (labels, ...inputs) => {this.#isl_exp(inputs[0], inputs[1])},
+      descriptors: [
+        {type: "variable", name: "name"},
+        {type: "number", name: "power"}
+      ]
+    },
+    root: {
+      callback: (labels, ...inputs) => {this.#isl_root(inputs[0], inputs[1])},
+      descriptors: [
+        {type: "variable", name: "name"},
+        {type: "number", name: "root"}
+      ]
+    },
+    negate: {
+      callback: (labels, ...inputs) => {this.#isl_negate(inputs[0])},
+      descriptors: [
+        {type: "variable", name: "name"}
+      ]
+    },
+    log: {
+      callback: (labels, ...inputs) => {this.#isl_log(inputs[0])},
+      descriptors: [
+        {type: "any", name: "message"}
+      ]
+    },
+    flush: {
+      callback: (labels, ...inputs) => {
+        if(labels.includes("separated")){
+          this.#flushSeparate()
+        }
+        else{
+          this.#flush()
+        }
+      },
+      descriptors: []
+    },
+    "popup-input": {
+      callback: (labels, ...inputs) => {this.#isl_popup_input(inputs[0], inputs[1])},
+      descriptors: [
+        {type: "variable", name: "target"},
+        {type: "any", name: "message"}
+      ]
+    },
+    awaitkey: {
+      callback: (labels, ...inputs) => {this.#isl_awaitkey(inputs[0], inputs[1])},
+      descriptors: [
+        {type: "variable", name: "target"},
+        {type: "VariableManipulationType", name: "type"}
+      ],
+    },
+    getkeys: {
+      callback: (labels, ...inputs) => {this.#isl_getkeys(inputs[0], inputs[1])},
+      descriptors: [
+        {type: "variable", name: "target"},
+        {type: "VariableManipulationType", name: "type"}
+      ],
+    },
+    restart: {
+      callback: (labels, ...inputs) => {
+        if(labels.includes("non-destructive")){
+          this.stopExecution()
+        }
+        else{
+          this.#stopExecutionDestructive()
+        }
+        this.startExecution(this.executeSpeed)
+      },
+      descriptors: [],
+    },
+    rundelay: {
+      callback: (labels, ...inputs) => {
+        this.executeSpeed = inputs[0]
+      },
+      descriptors: [
+        {type: "number", name: "speed"}
+      ],
+    },
+    stop: {
+      callback: (labels, ...inputs) => {
+        this.stopExecution()
+      },
+      descriptors: [],
+    },
+    pause: {
+      callback: (labels, ...inputs) => {
+        this.#waits += inputs[0]
+      },
+      descriptors: [
+        {type: "number", name: "delay"}
+      ],
+    },
+    if: {
+      callback: (labels, ...inputs) => {
+        this.#isl_if(inputs[0], inputs[1], inputs[2], inputs.slice(3))
+      },
+      descriptors: [
+        {type: "any", name: "value 1"},
+        {type: "comparator", name: "comparator"},
+        {type: "any", name: "value 2"},
+        {type: "any", name: "code"}
+      ],
+    },
+    jump: {
+      callback: (labels, ...inputs) => {
+        this.#goToLine(inputs[0])
+      },
+      descriptors: [
+        {type: "LineNumber", name: "line"}
+      ],
+    },
+    export: {
+      callback: (labels, ...inputs) => {
+        this.#isl_export(inputs[0], inputs[1])
+      },
+      descriptors: [
+        {type: "variable", name: "local"},
+        {type: "string", name: "external"}
+      ],
+    },
+    import: {
+      callback: (labels, ...inputs) => {
+        this.#isl_import(inputs[0], inputs[1])
+      },
+      descriptors: [
+        {type: "string", name: "external"},
+        {type: "variable", name: "local"}
+      ],
+    },
+  }
 }
-
-
 
 function clamp(number, min, max) {
   return Math.min(Math.max(number, min), max);
