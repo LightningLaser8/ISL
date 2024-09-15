@@ -1505,7 +1505,7 @@ class ISLInterpreter{
     }
     for(let varName in extension.variables){
       let variable = extension.variables[varName]
-      this.#globalVariables[varName] = {value: variable.value, type: typeof variable.value}
+      this.#globalVariables[varName] = variable
     }
     if(!Array.isArray(extension.types)) return;
     for(let type of extension.types){
