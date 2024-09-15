@@ -69,7 +69,7 @@ class GraphicsExtension extends ISLExtension {
       context.fillStyle = this.#canvasSettings.fillColour ?? "#ff0000";
       context.rect(x, y, width, height);
       let drawn = false
-      if(labels.includes("filled")){
+      if(labels.includes("borderless")){
         context.fill();
         drawn = true
       }
@@ -106,7 +106,7 @@ class GraphicsExtension extends ISLExtension {
       context.fillStyle = this.#canvasSettings.fillColour ?? "#ff0000";
       context.arc(x, y, radius, 0, Math.PI * 2);
       let drawn = false
-      if(labels.includes("filled")){
+      if(labels.includes("borderless")){
         context.fill();
         drawn = true
       }
@@ -143,7 +143,7 @@ class GraphicsExtension extends ISLExtension {
       context.fillStyle = this.#canvasSettings.fillColour ?? "#ff0000";
       context.ellipse(x, y, width/2, height/2, 0, 0, Math.PI * 2,);
       let drawn = false
-      if(labels.includes("filled")){
+      if(labels.includes("borderless")){
         context.fill();
         drawn = true
       }
@@ -184,7 +184,7 @@ class GraphicsExtension extends ISLExtension {
       context.strokeStyle = this.#canvasSettings.outlineColour ?? "#ff0000";
       context.fillStyle = this.#canvasSettings.fillColour ?? "#ff0000";
       let drawn = false
-      if(labels.includes("filled")){
+      if(labels.includes("borderless")){
         context.fillText(text, x, y, maxWidth);
         drawn = true
       }
@@ -358,7 +358,7 @@ class GraphicsExtension extends ISLExtension {
     this.md = this.addVariable("md", false)
   }
   #setupLabels() {
-    this.addLabel("filled", ["rectangle", "circle", "ellipse"])
+    this.addLabel("borderless", ["rectangle", "circle", "ellipse"])
     this.addLabel("hollow", ["rectangle", "circle", "ellipse"])
     this.addLabel("no", ["outline", "fill"])
     this.addLabel("right", ["text", "ellipse", "circle", "rectangle"])
