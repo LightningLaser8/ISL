@@ -19,6 +19,17 @@ Has a custom error handler to give better information about ISL errors and their
  * General interpreter to run ISL code with. Runs by default in the environment `js`.
  */
 class ISLInterpreter{
+  //Basically, this describes types and when they are valid
+  #validators = {
+    string: value => typeof value === "string",
+    number: value => typeof value === "number",
+    boolean: value => typeof value === "boolean",
+    variable: value => typeof value === "string" && value in this.#localVariables,
+    global: value => typeof value === "string" && value in this.#globalVariables,
+    function: value => typeof value === "string" && value in this.#functions,
+    relpos: value => value[0] === "~" && typeof ISLInterpreter.#restoreOriginalType(value.substring(1)) === "number"
+  }
+
   static #deprecated = {
     webprompt: {replacements: ["'popup-input'"], type: "renamed", display: "'webprompt'"},
     declare: {replacements: ["'string'", "'function'", "'number'"], type: "split", display: "'declare var/cmd'"}
@@ -45,12 +56,12 @@ class ISLInterpreter{
   #localVariables = {}
   #globalVariables = {
     //Mouse variables
-    mleft: {value: 0, type: "number"},
-    mright: {value: 0, type: "number"},
-    mwheel: {value: 0, type: "number"},
-    m4: {value: 0, type: "number"},
-    m5: {value: 0, type: "number"},
-    many: {value: 0, type: "number"}
+    mleft: {value: false, type: "boolean"},
+    mright: {value: false, type: "boolean"},
+    mwheel: {value: false, type: "boolean"},
+    m4: {value: false, type: "boolean"},
+    m5: {value: false, type: "boolean"},
+    many: {value: false, type: "boolean"}
   } //These cannot be changed by ISL, they're like constants but custom keywords and events can change them.
   #functions = {}
   #parameters = {}
@@ -181,13 +192,13 @@ class ISLInterpreter{
    */
   #handleClick(event){
     this.#mouseButtonsPressed = event.buttons??0
-    this.#globalVariables.mleft.value = this.#isMouseButtonPressed("left")?1:0
-    this.#globalVariables.mright.value = this.#isMouseButtonPressed("right")?1:0
-    this.#globalVariables.mwheel.value = this.#isMouseButtonPressed("wheel")?1:0
-    this.#globalVariables.m4.value = this.#isMouseButtonPressed("back")?1:0
-    this.#globalVariables.m5.value = this.#isMouseButtonPressed("forward")?1:0
+    this.#globalVariables.mleft.value = this.#isMouseButtonPressed("left")
+    this.#globalVariables.mright.value = this.#isMouseButtonPressed("right")
+    this.#globalVariables.mwheel.value = this.#isMouseButtonPressed("wheel")
+    this.#globalVariables.m4.value = this.#isMouseButtonPressed("back")
+    this.#globalVariables.m5.value = this.#isMouseButtonPressed("forward")
 
-    this.#globalVariables.many.value = (event.buttons > 0)?1:0
+    this.#globalVariables.many.value = (event.buttons > 0)
   }
 
   #isMouseButtonPressed(buttonName) {
@@ -223,7 +234,7 @@ class ISLInterpreter{
   #handleDeprecatedFeature(feature, type){
     if(!ISLInterpreter.#deprecated.hasOwnProperty(feature)) return false;
     const featObj = ISLInterpreter.#deprecated[feature]
-    this.#warnOnce("df:"+feature+":"+type, "Deprecated feature used: "+featObj.display+" ("+type+", line "+this.#pc+")"+"\nFeature has been "+featObj.type+".\n"+(featObj.replacements?(featObj.replacements.length > 1?("Use "+featObj.replacements.slice(0, -1).join(", ")+" or "+featObj.replacements.at(-1)+" instead."):"Use "+featObj.replacements[0]+" instead."):"Do not use."))
+    this.#warnOnce("deprecated."+type+"."+feature, "Deprecated feature used: "+featObj.display+" ("+type+", line "+this.#pc+")"+"\nFeature has been "+featObj.type+".\n"+(featObj.replacements?(featObj.replacements.length > 1?("Use "+featObj.replacements.slice(0, -1).join(", ")+" or "+featObj.replacements.at(-1)+" instead."):"Use "+featObj.replacements[0]+" instead."):"Do not use."))
     return true;
   }
 
@@ -585,8 +596,8 @@ class ISLInterpreter{
               replaceAll("🟨", "[").
               replaceAll("🟩", "]").
               replaceAll("🟪", ":")
-            //Parse numbers
-            parts[p] = ISLInterpreter.#tryToNum(parts[p])
+            //Parse numbers and booleans
+            parts[p] = ISLInterpreter.#restoreOriginalType(parts[p])
           }
           this.#currentLabels = []
           this.#executeStatement(parts)
@@ -773,6 +784,16 @@ class ISLInterpreter{
       return test
     }
   }
+  /**
+   * Tries to get the input as anything other than a string.
+   * @param {string} thing 
+   * @returns {number | boolean | string} The input casted to something else, if applicable.
+   */
+  static #restoreOriginalType(thing){
+    if(thing === "true") return true //'True' value
+    if(thing === "false") return false //'False' value
+    return this.#tryToNum(thing)
+  }
   #log(...msg){
     this.#onlog(...msg)
   }
@@ -840,13 +861,13 @@ class ISLInterpreter{
     }
     switch(operator){
       case "=":
-        return val1 == val2
+        return val1 === val2
       case "<":
         return val1 < val2
       case ">":
         return val1 > val2
       case "!=":
-        return val1 != val2
+        return val1 !== val2
       case "in":
         if(/^\[[^\[\]]*\]$/.test(val2)){
           if(this.#debug) console.log("group test:",val1,"in",val2.replaceAll("🟦", " "))
@@ -864,7 +885,7 @@ class ISLInterpreter{
   #setVariableFromFullPath(path, value){
     let xedPath = path.trim().replace(";", " ").replace("}", " ").replace("{", " ").replace("]", " ").replace("[", " ").replace(")", " ").replace("(", " ").replace("=", " ")
     let xedVal = (typeof value === "string") ? value.trim().replace(";", " ").replace("}", " ").replace("{", " ").replace("]", " ").replace("[", " ").replace(")", " ").replace("(", " ").replace("=", " "): value
-    let val = (typeof ISLInterpreter.#tryToNum(xedVal) === "number")?xedVal:"\""+xedVal+"\""
+    let val = (typeof ISLInterpreter.#restoreOriginalType(xedVal) !== "string")?xedVal:"\""+xedVal+"\""
     let f = new Function(xedPath + "=" + val)
     f() //fix possible security vulnerability
   }
@@ -1004,14 +1025,14 @@ class ISLInterpreter{
         this.startExecution(this.executeSpeed)
       }
       else if(parts[0] === "rundelay"){
-        ISLInterpreter.validateNum("rundelay", ["delay", parts[1]])
+        ISLInterpreter.#validateNum("rundelay", ["delay", parts[1]])
         this.executeSpeed = parts[1] ?? 10
       }
       else if(parts[0] === "stop"){
         this.stopExecution()
       }
       else if(parts[0] === "pause"){
-        ISLInterpreter.validateNum("pause", ["timeout", parts[1]])
+        ISLInterpreter.#validateNum("pause", ["timeout", parts[1]])
         this.#waits += parts[1]
       }
       else if(parts[0] === "if"){
@@ -1033,12 +1054,19 @@ class ISLInterpreter{
       else if(this.#customKeywords[parts[0]] !== undefined){
         const keyword = this.#customKeywords[parts[0]]
         const inputs = parts.slice(1)
+        if(keyword.descriptors){
+          let len = keyword.descriptors.length
+          for(let index = 0; index < len; index++){
+            let descriptor = keyword.descriptors[index]
+            this.#validateDescriptor(parts[0], parts[index + 1], descriptor)
+          }
+        }
         keyword.callback.apply(keyword.source, [this, this.#currentLabels, ...inputs])
       }
 
       //Error if invalid
       else{
-        throw new ISLError("Statement '"+parts[0]+"' not recognised", SyntaxError)
+        throw new ISLError("Keyword or label '"+parts[0]+"' not recognised", SyntaxError)
       }
     }
   }
@@ -1053,10 +1081,10 @@ class ISLInterpreter{
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
   #goToLine(line){
-    if(line[0] === "~" && typeof ISLInterpreter.#tryToNum(line.substring(1)) === "number"){
+    if(this.#validators.relpos(line)){
       this.#pc = this.#pc + parseInt(line.substring(1)) - 1
     }
-    else if(typeof line === "number"){
+    else if(this.#validators.number(line)){
       this.#pc = parseInt(line) - 1
     }
     else{
@@ -1065,10 +1093,10 @@ class ISLInterpreter{
   }
   //Variable Creation
   #isl_declare(declareType, name, initialValue = null, type, functionParameters = []){
-    ISLInterpreter.validateStr("(variable or function declaration)", ["name", name])
+    ISLInterpreter.#validateStr("(variable or function declaration)", ["name", name])
     if(declareType === "var"){
       if(type === undefined){
-        this.#warnOnce("notype","No type set for variable '"+name+"' (declared line "+this.#pc+")")
+        this.#warnOnce("var.notype","No type set for variable '"+name+"' (declared line "+this.#pc+")")
       }
       if(this.#doesVarExist(name) && this.#hasVarBeenDeclaredInCurrentRun(name)){
         throw new ISLError("Cannot redeclare local variable '"+name+"'", ReferenceError)
@@ -1105,7 +1133,7 @@ class ISLInterpreter{
   }
   //uh, BYE
   #isl_delete(name){
-    ISLInterpreter.validateStr("delete", ["variable", name])
+    ISLInterpreter.#validateStr("delete", ["variable", name])
     if(!this.#doesVarExist(name)){
       throw new ISLError("Cannot delete nonexistent variable '"+name+"'", ReferenceError)
     }
@@ -1115,7 +1143,7 @@ class ISLInterpreter{
   }
   //Functions
   #isl_end(name){
-    ISLInterpreter.validateStr("end", ["name", name])
+    ISLInterpreter.#validateStr("end", ["name", name])
     if(!this.#doesFuncExist(name)){
       throw new ISLError("Function '"+name+"' does not exist!", ReferenceError)
     }
@@ -1135,7 +1163,7 @@ class ISLInterpreter{
     }
   }
   #isl_execute(func, ...inParameters){
-    ISLInterpreter.validateStr("execute", ["name", func])
+    ISLInterpreter.#validateStr("execute", ["name", func])
     if(!this.#doesFuncExist(func)){
       throw new ISLError("Function '"+func+"' does not exist!", ReferenceError)
     }
@@ -1155,7 +1183,7 @@ class ISLInterpreter{
   }
   //Variable Manipulation: Binary operators
   #isl_add(variable, value){
-    ISLInterpreter.validateStr("add", ["variable", variable])
+    ISLInterpreter.#validateStr("add", ["variable", variable])
     if(this.#doesVarExist(variable)){
       if(value){
         const varToModify = this.#getVarObj(variable)
@@ -1171,8 +1199,8 @@ class ISLInterpreter{
     }
   }
   #isl_sub(variable, value){
-    ISLInterpreter.validateStr("subtract", ["variable", variable])
-    ISLInterpreter.validateNum("subtract", ["value", value])
+    ISLInterpreter.#validateStr("subtract", ["variable", variable])
+    ISLInterpreter.#validateNum("subtract", ["value", value])
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(this.#staticTypes && varToModify.type !== "number"){
@@ -1186,8 +1214,8 @@ class ISLInterpreter{
     }
   }
   #isl_mult(variable, value){
-    ISLInterpreter.validateStr("multiply", ["variable", variable])
-    ISLInterpreter.validateNum("multiply", ["value", value])
+    ISLInterpreter.#validateStr("multiply", ["variable", variable])
+    ISLInterpreter.#validateNum("multiply", ["value", value])
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(this.#staticTypes && varToModify.type !== "number"){
@@ -1201,8 +1229,8 @@ class ISLInterpreter{
     }
   }
   #isl_exp(variable, value){
-    ISLInterpreter.validateStr("exponent", ["variable", variable])
-    ISLInterpreter.validateNum("exponent", ["value", value])
+    ISLInterpreter.#validateStr("exponent", ["variable", variable])
+    ISLInterpreter.#validateNum("exponent", ["value", value])
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(this.#staticTypes && varToModify.type !== "number"){
@@ -1216,8 +1244,8 @@ class ISLInterpreter{
     }
   }
   #isl_root(variable, value){
-    ISLInterpreter.validateStr("root", ["variable", variable])
-    ISLInterpreter.validateNum("root", ["value", value])
+    ISLInterpreter.#validateStr("root", ["variable", variable])
+    ISLInterpreter.#validateNum("root", ["value", value])
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(this.#staticTypes && varToModify.type !== "number"){
@@ -1231,8 +1259,8 @@ class ISLInterpreter{
     }
   }
   #isl_div(variable, value){ //Now with static typing!
-    ISLInterpreter.validateStr("divide", ["variable", variable])
-    ISLInterpreter.validateNum("divide", ["value", value])
+    ISLInterpreter.#validateStr("divide", ["variable", variable])
+    ISLInterpreter.#validateNum("divide", ["value", value])
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(this.#staticTypes && varToModify.type !== "number"){
@@ -1246,7 +1274,7 @@ class ISLInterpreter{
     }
   }
   #isl_set(variable, value){
-    ISLInterpreter.validateStr("set", ["variable", variable])
+    ISLInterpreter.#validateStr("set", ["variable", variable])
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(varToModify.type === undefined){
@@ -1263,7 +1291,7 @@ class ISLInterpreter{
   }
   //Variable Manipulation: Unary operators
   #isl_round(variable){
-    ISLInterpreter.validateStr("round", ["variable", variable])
+    ISLInterpreter.#validateStr("round", ["variable", variable])
     if(this.#doesVarExist(variable)){
       let v = this.#getVarObj(variable)
       const varToModify = this.#getVarObj(variable)
@@ -1280,7 +1308,7 @@ class ISLInterpreter{
     }
   }
   #isl_negate(variable){
-    ISLInterpreter.validateStr("negate", ["variable", variable])
+    ISLInterpreter.#validateStr("negate", ["variable", variable])
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(this.#staticTypes && varToModify.type != "number"){
@@ -1300,10 +1328,10 @@ class ISLInterpreter{
     this.#console.push(value)
   }
   #isl_popup_input(variable, value){
-    ISLInterpreter.validateStr("popup-input", ["variable", variable])
+    ISLInterpreter.#validateStr("popup-input", ["variable", variable])
     if(this.#doesVarExist(variable)){
       let v = this.#getVarObj(variable)
-      const newValue = ISLInterpreter.#tryToNum(prompt(value))
+      const newValue = ISLInterpreter.#restoreOriginalType(prompt(value))
       this.#isl_set(variable, newValue)
     }
     else{
@@ -1311,7 +1339,7 @@ class ISLInterpreter{
     }
   }
   #isl_awaitkey(variable, type = "set"){
-    ISLInterpreter.validateStr("awaitkey", ["variable",variable], ["type", type])
+    ISLInterpreter.#validateStr("awaitkey", ["variable",variable], ["type", type])
     if(this.#doesVarExist(variable)){
       this.#listeningForKeyPress = true
       if(this.#debug){
@@ -1325,7 +1353,7 @@ class ISLInterpreter{
     }
   }
   #isl_getkeys(variable, type = "set"){
-    ISLInterpreter.validateStr("getkeys", ["variable",variable], ["type", type])
+    ISLInterpreter.#validateStr("getkeys", ["variable",variable], ["type", type])
     if(this.#doesVarExist(variable)){
       let keys = Object.getOwnPropertyNames(this.#pressed)
       let output = ""
@@ -1359,7 +1387,7 @@ class ISLInterpreter{
   }
   //Flow Control
   #isl_if(val1, operator, val2, code){
-    ISLInterpreter.validateStr("if", ["operator",operator])
+    ISLInterpreter.#validateStr("if", ["operator",operator])
     if(this.#operate(val1, operator, val2)){
       if(this.#debug) console.log("condition met, executing {"+code.join(" ")+"}")
       this.#executeStatement(code)
@@ -1371,7 +1399,7 @@ class ISLInterpreter{
   //Program Interface
   #isl_export(local, external){
     if(this.allowExport){
-      ISLInterpreter.validateStr("export", ["external",external], ["local",local])
+      ISLInterpreter.#validateStr("export", ["external",external], ["local",local])
       if(this.#doesVarExist(local)){
         this.#setVariableFromFullPath(external, this.getVar(local))
       }
@@ -1385,7 +1413,7 @@ class ISLInterpreter{
   }
   #isl_import(external, local){
     if(this.allowImport){
-      ISLInterpreter.validateStr("import", ["external",external], ["local",local])
+      ISLInterpreter.#validateStr("import", ["external",external], ["local",local])
       if(this.#doesVarExist(local)){
         const newValue = this.#getVariableFromFullPath(external)
         this.#isl_set(local, newValue)
@@ -1399,18 +1427,19 @@ class ISLInterpreter{
     }
   }
   
+  //DEPRECATED SECTION
   /** Validator for number inputs.
    * @param {string} keyword The name of the keyword
    * @param {...[string, *]} inputs List of inputs, in the form [name, value]
   */
-  static validateNum(keyword, ...inputs){
+  static #validateNum(keyword, ...inputs){
     ISLInterpreter.#validate(keyword, "number", ...inputs)
   }
   /** Validator for string inputs.
    * @param {string} keyword The name of the keyword
    * @param {...[string, *]} inputs List of inputs, in the form [name, value]
   */
-  static validateStr(keyword, ...inputs){
+  static #validateStr(keyword, ...inputs){
     ISLInterpreter.#validate(keyword, "string", ...inputs)
   }
   /** Validator for any inputs.
@@ -1428,6 +1457,26 @@ class ISLInterpreter{
       else if(typeof i[1] !== type){
         throw new ISLError("'"+keyword+"' expects type '"+type+"' for argument '"+i[0]+"', got '"+typeof i[1]+"' ('"+i[1]+"')", TypeError)
       }
+    }
+  }
+  //END OF DEPRECATED SECTION
+
+  #validateDescriptor(keyword, input, descriptor){
+    const actualDescriptor = {
+      type: "string",
+      name: "<unnamed argument>",
+      optional: false
+    }
+    if(descriptor && !descriptor.type) {
+      this.#warnOnce("desc.badtype","[line "+this.#pc+"] Input '"+actualDescriptor.name+"' has no type descriptor, defaulting to 'string'.")
+    }
+    Object.assign(actualDescriptor, descriptor)
+    if(!this.#validators[actualDescriptor.type]){
+      this.#warnOnce("type.badval","[line "+this.#pc+"] Type '"+actualDescriptor.type+"' has no validator. Any value will be accepted.")
+      return;
+    }
+    if(!(actualDescriptor.optional && typeof input === "undefined") && !this.#validators[actualDescriptor.type](input)){
+      throw new ISLError("'"+keyword+"' expects type '"+actualDescriptor.type+"'"+(actualDescriptor.optional?" or nothing":"")+" for input '"+actualDescriptor.name+"', got '"+typeof input+"' ('"+input+"')", TypeError)
     }
   }
 
@@ -1452,11 +1501,15 @@ class ISLInterpreter{
     }
     for(let wordName in extension.keywords){
       let keyword = extension.keywords[wordName]
-      this.#customKeywords[wordName] = {callback: keyword.callback, source: extension}
+      this.#customKeywords[wordName] = {callback: keyword.callback, descriptors: keyword.descriptors, source: extension}
     }
     for(let varName in extension.variables){
       let variable = extension.variables[varName]
       this.#globalVariables[varName] = {value: variable.value, type: typeof variable.value}
+    }
+    if(!Array.isArray(extension.types)) return;
+    for(let type of extension.types){
+      this.#validators[type.name] = type.validator
     }
     //this.#customLabels.push(...extension.labels)
   }

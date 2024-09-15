@@ -23,11 +23,12 @@ class GraphicsExtension extends ISLExtension {
     this.interpreter = interpreter
     this.#bufferedGraphics = options?.bufferedGraphics ?? true
 
-    addEventListener("mouseup", () => {this.md.value = 0})
+    addEventListener("mouseup", () => {this.md.value = false})
 
     this.#setupKeywords()
     this.#setupLabels()
     this.#setupVariables()
+    this.#setupTypes()
   }
   #mouseMoved(event){
     this.mx.value = event.offsetX
@@ -35,28 +36,16 @@ class GraphicsExtension extends ISLExtension {
   }
   
   #isl_canvas(width, height){
-    ISLInterpreter.validateNum("canvas", ["width", width], ["height", height])
-    if(typeof width === "number" && typeof height === "number"){
-      /** @type {HTMLCanvasElement} */
-      const cnv = this.#canvas ?? GraphicsExtension.#createHTMLElement("canvas")
-      this.#canvas = cnv
-      cnv.setAttribute("width", width)
-      cnv.setAttribute("height", height)
-      cnv.onmousemove = event => {this.#mouseMoved(event)}
-      cnv.onmousedown = event => {this.md.value = 1}
-    }
-    else{
-      if(typeof width === "number"){
-        throw new ISLError("Canvas height must be a number, got "+ typeof height, TypeError)
-      }
-      else{
-        throw new ISLError("Canvas width must be a number, got "+ typeof width, TypeError)
-      }
-    }
+    /** @type {HTMLCanvasElement} */
+    const cnv = this.#canvas ?? GraphicsExtension.#createHTMLElement("canvas")
+    this.#canvas = cnv
+    cnv.setAttribute("width", width)
+    cnv.setAttribute("height", height)
+    cnv.onmousemove = event => {this.#mouseMoved(event)}
+    cnv.onmousedown = event => {this.md.value = true}
   }
   #isl_rect(labels, x, y, width, height){
     this.#checkCTX()
-    ISLInterpreter.validateNum("rectangle", ["x",x], ["y", y], ["width", width], ["height", height])
     const context = this.#getRenderContext()
     {
       x -= width/2
@@ -96,7 +85,6 @@ class GraphicsExtension extends ISLExtension {
   }
   #isl_circle(labels, x, y, radius){
     this.#checkCTX()
-    ISLInterpreter.validateNum("circle", ["x",x], ["y", y], ["radius", radius])
     const context = this.#getRenderContext()
     {
       if(labels.includes("aligned")){
@@ -134,7 +122,6 @@ class GraphicsExtension extends ISLExtension {
   }
   #isl_ellipse(labels, x, y, width, height){
     this.#checkCTX()
-    ISLInterpreter.validateNum("ellipse", ["x",x], ["y", y], ["width", width], ["height", height])
     const context = this.#getRenderContext()
     {
       if(labels.includes("aligned")){
@@ -172,11 +159,6 @@ class GraphicsExtension extends ISLExtension {
   }
   #isl_text(labels, x, y, text, maxWidth = undefined){
     this.#checkCTX()
-    ISLInterpreter.validateNum("text", ["x", x], ["y", y])
-    ISLInterpreter.validateStr("text", ["text", text])
-    if(typeof maxWidth !== "number" && typeof maxWidth !== "undefined"){
-      throw new ISLError("'text' expects a number or undefined for argument 'maxWidth', got"+typeof maxWidth, TypeError)
-    }
     const context = this.#getRenderContext()
     context.font = (this.#canvasSettings.textSize ?? 20)+"px "+(this.#canvasSettings.textFont ?? "Arial")
     const textmetrics = context.measureText(text)
@@ -218,7 +200,6 @@ class GraphicsExtension extends ISLExtension {
   }
   #isl_bg(colour){
     this.#checkCTX()
-    ISLInterpreter.validateStr("background", ["colour", colour])
     const context = this.#getRenderContext()
     context.beginPath();
     context.fillStyle = colour ?? "#000000";
@@ -260,7 +241,10 @@ class GraphicsExtension extends ISLExtension {
   #setupKeywords() {
     this.addKeyword("canvas", function(interpreter, labels, width, height){
       this.#isl_canvas(width, height)
-    })
+    }, [
+      {type: "number", name: "width"},
+      {type: "number", name: "height"}
+    ])
     this.addKeyword("rectangle", function(interpreter, labels, x, y, width, height){
       if(this.#bufferedGraphics){
         this.#drawBuffer.push({type: this.#isl_rect, params: [labels, x, y, width, height], options: structuredClone(this.#canvasSettings)})
@@ -268,7 +252,12 @@ class GraphicsExtension extends ISLExtension {
       else{
         this.#isl_rect(labels, x, y, width, height)
       }
-    })
+    }, [
+      {type: "number", name: "x"},
+      {type: "number", name: "y"},
+      {type: "number", name: "width"},
+      {type: "number", name: "height"}
+    ])
     this.addKeyword("ellipse", function(interpreter, labels, x, y, width, height){
       if(this.#bufferedGraphics){
         this.#drawBuffer.push({type: this.#isl_ellipse, params: [labels, x, y, width, height], options: structuredClone(this.#canvasSettings)})
@@ -276,7 +265,12 @@ class GraphicsExtension extends ISLExtension {
       else{
         this.#isl_ellipse(labels, x, y, width, height)
       }
-    })
+    }, [
+      {type: "number", name: "x"},
+      {type: "number", name: "y"},
+      {type: "number", name: "width"},
+      {type: "number", name: "height"}
+    ])
     this.addKeyword("circle", function(interpreter, labels, x, y, radius){
       if(this.#bufferedGraphics){
         this.#drawBuffer.push({type: this.#isl_circle, params: [labels, x, y, radius], options: structuredClone(this.#canvasSettings)})
@@ -284,7 +278,11 @@ class GraphicsExtension extends ISLExtension {
       else{
         this.#isl_circle(labels, x, y, radius)
       }
-    })
+    }, [
+      {type: "number", name: "x"},
+      {type: "number", name: "y"},
+      {type: "number", name: "radius"}
+    ])
     this.addKeyword("text", function(interpreter, labels, x, y, text, maxWidth){
       if(this.#bufferedGraphics){
         this.#drawBuffer.push({type: this.#isl_text, params: [labels, x, y, text, maxWidth], options: structuredClone(this.#canvasSettings)})
@@ -292,7 +290,12 @@ class GraphicsExtension extends ISLExtension {
       else{
         this.#isl_text(labels, x, y, text, maxWidth)
       }
-    })
+    }, [
+      {type: "number", name: "x"},
+      {type: "number", name: "y"},
+      {type: "string", name: "text"},
+      {type: "number", name: "maxWidth", optional: true}
+    ])
     this.addKeyword("background", function(interpreter, labels, colour){
       if(this.#bufferedGraphics){
         this.#drawBuffer.push({type: this.#isl_bg, params: [colour], options: structuredClone(this.#canvasSettings)})
@@ -300,46 +303,43 @@ class GraphicsExtension extends ISLExtension {
       else{
         this.#isl_bg(colour)
       }
-    })
+    }, [
+      {type: "colour", name: "colour"}
+    ])
     this.addKeyword("draw", function(interpreter, labels){
       if(this.#bufferedGraphics){
         this.#isl_draw()
       }
     })
     this.addKeyword("textsize", function(interpreter, labels, size){
-      ISLInterpreter.validateNum("textsize", ["size", parts[1]])
       this.#canvasSettings.textSize = parts[1]
-    })
-    this.addKeyword("fill", function(interpreter, labels, colour, alpha){
+    }, [
+      {type: "number", name: "size"}
+    ])
+    this.addKeyword("fill", function(interpreter, labels, colour){
       if(labels.includes("no")){
         this.#canvasSettings.fillColour = "#00000000"
       }
       else{
-        ISLInterpreter.validateStr("fill", ["colour", colour])
-        ISLInterpreter.validateNum("fill", ["alpha", alpha, "optional"])
         this.#canvasSettings.fillColour = colour
-        if(typeof alpha !== "undefined"){
-          let input = clamp(alpha, 0, 255).toString(16)
-          if(input.length < 2){
-            input = "0" + input
-          }
-          this.#canvasSettings.fillColour += input
-        }
       }
-    })
+    }, [
+      {type: "colour", name: "colour"}
+    ])
     this.addKeyword("outline", function(interpreter, labels, colour, width){
       if(labels.includes("no")){
         this.#canvasSettings.fillColour = "#00000000"
       }
       else{
-        ISLInterpreter.validateStr("outline", ["colour", colour])
-        ISLInterpreter.validateNum("outline", ["width", width, "optional"])
         this.#canvasSettings.outlineColour = colour
         if(typeof width !== "undefined"){
           this.#canvasSettings.outlineWidth = width
         }
       }
-    })
+    }, [
+      {type: "colour", name: "colour"},
+      {type: "number", name: "width", optional: true}
+    ])
     this.addKeyword("save", function(interpreter, labels){
       this.#checkCTX()
       this.#getRenderContext().save()
@@ -355,7 +355,7 @@ class GraphicsExtension extends ISLExtension {
   #setupVariables() {
     this.mx = this.addVariable("mx", 0)
     this.my = this.addVariable("my", 0)
-    this.md = this.addVariable("md", 0)
+    this.md = this.addVariable("md", false)
   }
   #setupLabels() {
     this.addLabel("filled", ["rectangle", "circle", "ellipse"])
@@ -365,10 +365,19 @@ class GraphicsExtension extends ISLExtension {
     this.addLabel("left", ["text", "ellipse", "circle", "rectangle"])
     this.addLabel("aligned", ["text", "ellipse", "circle", "rectangle"])
   }
+  #setupTypes(){
+    this.addType("colour", value => isColor(value))
+  }
 }
 
 function clamp(number, min, max) {
   return Math.min(Math.max(number, min), max);
+}
+
+function isColor(strColor) {
+  const s = new Option().style;
+  s.color = strColor;
+  return s.color !== '';
 }
 
 export { GraphicsExtension }
