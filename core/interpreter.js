@@ -112,6 +112,7 @@ class ISLInterpreter{
   //Labels
   static #labels = [
     {label: "non-destructive", for: ["restart"]},
+    {label: "separated", for: ["flush"]},
   ]
   #currentLabels = []
 
@@ -458,7 +459,7 @@ class ISLInterpreter{
       console.groupEnd()
     }
     clearInterval(this.#executor)
-    this.#hardReset()
+    this.#reset()
   }
   #stopExecutionDestructive(){
     this.#stopped = true
@@ -472,7 +473,7 @@ class ISLInterpreter{
       console.groupEnd()
     }
     clearInterval(this.#executor)
-    this.#reset()
+    this.#hardReset()
   }
   /**
    * Pauses execution of loaded ISL.
