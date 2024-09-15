@@ -36,7 +36,7 @@ class ISLExtension{
    * Adds a custom keyword to this extension.
    * @param {string} name Name of the keyword. What you will actually have to type in to use the keyword.
    * @param {Function} callback Function to execute. Inputs are given as a list of function arguments after the second. The first parameter is the interpreter. The second parameter is an Array of the current labels. To get a variable value in this, call `(interpreter).getVar(name)`. To set a variable, call `(interpreter).setVar(name, value)`. `this` refers to the extension the keyword was loaded from. Cannot be an arrow function!
-   * @param {{type: string, name: string}[]} descriptors Describe the ISL inputs, including type, display name (for errors and such), and other metadata. If left blank for any input, it is treated as an optional string. If present, will be used for automatic validation.
+   * @param {{type: string, name: string}[]} descriptors Describe the ISL inputs, including type, display name (for errors and such), and other metadata. If left blank for any input, it is treated as a required string. If present, will be used for automatic validation.
    * @example <caption>Creates the keyword `double`, which doubles a variable's value. Accepts one 'variable' input - `varName` - the variable name.</caption>
    * -addKeyword(
      -  "double",
