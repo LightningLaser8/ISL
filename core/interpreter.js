@@ -113,6 +113,7 @@ class ISLInterpreter{
   static #labels = [
     {label: "non-destructive", for: ["restart"]},
     {label: "separated", for: ["flush"]},
+    {label: "grouped", for: ["getkeys"]},
   ]
   #currentLabels = []
 
