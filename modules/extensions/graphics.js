@@ -240,18 +240,13 @@ class GraphicsExtension extends ISLExtension {
 
   #setupKeywords() {
     this.addKeyword("canvas", function(interpreter, labels, width, height){
-      this.#isl_canvas(width, height)
+      this.#isl_canvas(width.value, height.value)
     }, [
       {type: "number", name: "width"},
       {type: "number", name: "height"}
     ])
     this.addKeyword("rectangle", function(interpreter, labels, x, y, width, height){
-      if(this.#bufferedGraphics){
-        this.#drawBuffer.push({type: this.#isl_rect, params: [labels, x, y, width, height], options: structuredClone(this.#canvasSettings)})
-      }
-      else{
-        this.#isl_rect(labels, x, y, width, height)
-      }
+        this.#drawBuffer.push({type: this.#isl_rect, params: [labels, x, y, width, height].map(x => x.value), options: structuredClone(this.#canvasSettings)})
     }, [
       {type: "number", name: "x"},
       {type: "number", name: "y"},
@@ -259,12 +254,7 @@ class GraphicsExtension extends ISLExtension {
       {type: "number", name: "height"}
     ])
     this.addKeyword("ellipse", function(interpreter, labels, x, y, width, height){
-      if(this.#bufferedGraphics){
-        this.#drawBuffer.push({type: this.#isl_ellipse, params: [labels, x, y, width, height], options: structuredClone(this.#canvasSettings)})
-      }
-      else{
-        this.#isl_ellipse(labels, x, y, width, height)
-      }
+        this.#drawBuffer.push({type: this.#isl_ellipse, params: [labels, x, y, width, height].map(x => x.value), options: structuredClone(this.#canvasSettings)})
     }, [
       {type: "number", name: "x"},
       {type: "number", name: "y"},
@@ -272,24 +262,14 @@ class GraphicsExtension extends ISLExtension {
       {type: "number", name: "height"}
     ])
     this.addKeyword("circle", function(interpreter, labels, x, y, radius){
-      if(this.#bufferedGraphics){
-        this.#drawBuffer.push({type: this.#isl_circle, params: [labels, x, y, radius], options: structuredClone(this.#canvasSettings)})
-      }
-      else{
-        this.#isl_circle(labels, x, y, radius)
-      }
+        this.#drawBuffer.push({type: this.#isl_circle, params: [labels, x, y, radius].map(x => x.value), options: structuredClone(this.#canvasSettings)})
     }, [
       {type: "number", name: "x"},
       {type: "number", name: "y"},
       {type: "number", name: "radius"}
     ])
     this.addKeyword("text", function(interpreter, labels, x, y, text, maxWidth){
-      if(this.#bufferedGraphics){
-        this.#drawBuffer.push({type: this.#isl_text, params: [labels, x, y, text, maxWidth], options: structuredClone(this.#canvasSettings)})
-      }
-      else{
-        this.#isl_text(labels, x, y, text, maxWidth)
-      }
+        this.#drawBuffer.push({type: this.#isl_text, params: [labels, x, y, text, maxWidth].map(x => x.value), options: structuredClone(this.#canvasSettings)})
     }, [
       {type: "number", name: "x"},
       {type: "number", name: "y"},
@@ -297,12 +277,7 @@ class GraphicsExtension extends ISLExtension {
       {type: "number", name: "maxWidth", optional: true}
     ])
     this.addKeyword("background", function(interpreter, labels, colour){
-      if(this.#bufferedGraphics){
-        this.#drawBuffer.push({type: this.#isl_bg, params: [colour], options: structuredClone(this.#canvasSettings)})
-      }
-      else{
-        this.#isl_bg(colour)
-      }
+        this.#drawBuffer.push({type: this.#isl_bg, params: [colour.value], options: structuredClone(this.#canvasSettings)})
     }, [
       {type: "colour", name: "colour"}
     ])
@@ -312,7 +287,7 @@ class GraphicsExtension extends ISLExtension {
       }
     })
     this.addKeyword("textsize", function(interpreter, labels, size){
-      this.#canvasSettings.textSize = parts[1]
+      this.#canvasSettings.textSize = parts[1].value
     }, [
       {type: "number", name: "size"}
     ])
@@ -321,7 +296,7 @@ class GraphicsExtension extends ISLExtension {
         this.#canvasSettings.fillColour = "#00000000"
       }
       else{
-        this.#canvasSettings.fillColour = colour
+        this.#canvasSettings.fillColour = colour.value
       }
     }, [
       {type: "colour", name: "colour"}
@@ -331,9 +306,9 @@ class GraphicsExtension extends ISLExtension {
         this.#canvasSettings.fillColour = "#00000000"
       }
       else{
-        this.#canvasSettings.outlineColour = colour
+        this.#canvasSettings.outlineColour = colour.value
         if(typeof width !== "undefined"){
-          this.#canvasSettings.outlineWidth = width
+          this.#canvasSettings.outlineWidth = width.value
         }
       }
     }, [

@@ -41,7 +41,7 @@ class ISLInterpreter{
   //Execution
   #isl = []
   #filename = "<direct execution>"
-  #realFilename = "s"
+  #realFilename = ""
   #loaded = false
   #counter = 0
   #lastErrorLine = 0
@@ -241,7 +241,7 @@ class ISLInterpreter{
     this.#warn(...msg)
     this.#warnedFor.push("."+warnID+"|"+this.#pc)
     if(this.#debug){
-      console.log("warning ID|line: "+this.#warnedFor)
+      this.#log("warning ID|line: "+this.#warnedFor)
     }
   }
 
@@ -348,7 +348,7 @@ class ISLInterpreter{
     if(!this.#isWaiting && !this.#stopped){
       if(this.#isl){
         if(this.#debug){
-          this.#log(this.#counter)
+          this.#log("Executing line "+this.#counter)
         }
         if(this.#isl[this.#counter] || this.#isl[this.#counter] == ""){
           this.#executeLineInternal(this.#isl[this.#counter])
@@ -375,7 +375,7 @@ class ISLInterpreter{
       if(!this.#isWaiting && !this.#stopped){
         if(this.#isl){
           if(this.#debug){
-            this.#log(this.#counter)
+            this.#log("Executing line "+this.#counter)
           }
           if(this.#isl[this.#counter]){
             this.#executeLineInternal(this.#isl[this.#counter])
@@ -493,7 +493,7 @@ class ISLInterpreter{
   #separateISLParts(line){
     let parts = []
     if(this.#debug){
-      this.#log(line)
+      this.#log("Code:",line)
     }
     parts = line.split(" ")
     return parts
@@ -532,7 +532,18 @@ class ISLInterpreter{
     let currentComponent = ""
     let components = []
     let currentType = "identifier"
+    if(this.#debug) this.#log("Parsing line '"+line+"'")
+    let removeComponent = () => {
+      let removed = components.pop()
+      if(this.#debug){
+        this.#log("Removed component '"+removed.value+"' (type '"+removed.type+"')")
+      }
+    }
     let addComponent = (content = "", type = currentType, setType = false) => {
+      if(!isComponent(currentComponent)) return; //Remove bad components
+      if(this.#debug){
+        this.#log("Component: '"+content+"' type '"+type+"'")
+      }
       let obj = {value: content, type: type}
       if(!setType){
         obj = ISLInterpreter.#restoreOriginalType(obj)
@@ -545,9 +556,22 @@ class ISLInterpreter{
           }
         }
       }
-      if(obj.value !== null) components.push(obj)
+      if(this.#debug){
+        if(obj) this.#log("Converted: '"+obj.value+"' type '"+obj.type+"'") 
+          else this.#log("No object!")
+      }
+      if(obj.value !== null){
+        components.push(obj)
+        if(this.#debug) this.#log("Added to parts")
+      }
+      else{
+        if(this.#debug) this.#log("Skipped, value was null")
+      }
       currentType = "identifier" //Reset type
       currentComponent = ""
+    }
+    let isComponent = component => {
+      return component.length > 0 || currentType !== "identifier"
     }
     for(let index = 0; index < line.length; index++){
       let character = line[index]
@@ -557,71 +581,85 @@ class ISLInterpreter{
         addComponent(currentComponent)
         continue //Ignore the space
       }
-      //QUOTES
-      //Opening quote
-      if(character === "\"" && !inQuotes){
-        inQuotes = true
-        addComponent(currentComponent) //Push everything before as a component
-        currentType = "string" //It's a string!
-        continue //Ignore the quote
-      }
-      //Closing quote
-      if(character === "\"" && inQuotes){
-        if(currentType !== "string") throw new ISLError("Unexpected closing '\"'", SyntaxError)
-        inQuotes = false
-        addComponent(currentComponent) //Push everything as a component
-        continue //Ignore the quote
-      }
-
-      //VAR REFS
-      //Opening backslash
-      if(character === "\\" && !inQuotes && !inSquareBrackets && !inBackslashes){
-        inBackslashes = true
-        addComponent(currentComponent) //Push everything before as a component
-        currentType = "variable"
-        if(line[index - 1] === "-") currentType = "local-variable"
-        if(line[index - 1] === ":") currentType = "parameter"
-        if(line[index + 1] === "_") currentType = "global-variable"
-        continue //Ignore the slash
-      }
-      //Closing backslash
-      if(character === "\\" && !inQuotes && !inSquareBrackets && inBackslashes){
-        inBackslashes = false
-        if(currentType !== "variable" && currentType !== "local-variable" && currentType !== "parameter" && currentType !== "global-variable") throw new ISLError("Unexpected closing '\\'", SyntaxError)
-        let obj = null
-        //Figure out what this is
-        if(currentType === "global-variable"){
-          obj = this.#getGlobalVarObj(currentComponent.substring(1))
+      if(!this.#skipping){
+        //QUOTES  
+        //Opening quote
+        if(character === "\"" && !inQuotes){
+          inQuotes = true
+          addComponent(currentComponent) //Push everything before as a component
+          currentType = "string" //It's a string!
+          continue //Ignore the quote
         }
-        else if(this.#callstack.length > 0 || currentType === "parameter" && currentType !== "local-variable"){
-          try{obj =  this.#getParameterObj(currentComponent)}
-          catch(e){
+        //Closing quote
+        if(character === "\"" && inQuotes){
+          if(currentType !== "string") throw new ISLError("Unexpected closing '\"'", SyntaxError)
+          inQuotes = false
+          addComponent(currentComponent) //Push everything as a component
+          continue //Ignore the quote
+        }
+
+        //VAR REFS
+        //Opening backslash
+        if(character === "\\" && !inQuotes && !inSquareBrackets && !inBackslashes){
+          inBackslashes = true
+          addComponent(currentComponent) //Push everything before as a component
+          currentType = "variable"
+          if(line[index - 1] === "-"){
+            currentType = "local-variable"
+            removeComponent()
+          }
+          if(line[index - 1] === ":"){
+            currentType = "parameter"
+            removeComponent()
+          }
+          if(line[index + 1] === "_") currentType = "global-variable"
+          if(this.#debug) this.#log("Variable getter with type: '"+currentType+"'")
+          continue //Ignore the slash
+        }
+        //Closing backslash
+        if(character === "\\" && !inQuotes && !inSquareBrackets && inBackslashes){
+          inBackslashes = false
+          if(currentType !== "variable" && currentType !== "local-variable" && currentType !== "parameter" && currentType !== "global-variable") throw new ISLError("Unexpected closing '\\'", SyntaxError)
+          if(this.#debug) this.#log("Variable getter with type: '"+currentType+"' ended")
+          let obj = null
+          //Figure out what this is
+          if(currentType === "global-variable"){
+            obj = this.#getGlobalVarObj(currentComponent.substring(1))
+          }
+          else if(currentType === "parameter"){
+            obj = this.#getParameterObj(currentComponent)
+          }
+          else if(this.#callstack.length > 0 && currentType !== "local-variable"){
+            try{obj =  this.#getParameterObj(currentComponent)}
+            catch(e){
+              obj = this.#getVarObj(currentComponent)
+            }
+          }
+          else{
             obj = this.#getVarObj(currentComponent)
           }
+          addComponent(obj.value, obj.type, true) //Push the variable content as a component
+          currentComponent = "" //Clear component
+          continue //You get it by now
         }
-        else{
-          obj = this.#getVarObj(currentComponent)
-        }
-        addComponent(obj.value, obj.type, true) //Push the variable content as a component
-        currentComponent = "" //Clear component
-        continue //You get it by now
-      }
 
-      //BRACKETS
-      //Opening bracket
-      if(character === "[" && !inQuotes && !inSquareBrackets){
-        inSquareBrackets = true
-        addComponent(currentComponent) //Push everything before as a component
-        currentType = "group" //It's a group!
-        continue //Ignore the bracket
-      }
-      //Closing bracket
-      if(character === "]" && !inQuotes && inSquareBrackets){
-        if(!inSquareBrackets || currentType !== "group") throw new ISLError("Unexpected closing ']'", SyntaxError)
+        //BRACKETS
+        //Opening bracket
+        if(character === "[" && !inQuotes && !inSquareBrackets){
           inSquareBrackets = true
-        addComponent(currentComponent) //Push everything as a component
-        continue //Ignore the bracket
+          addComponent(currentComponent) //Push everything before as a component
+          currentType = "group" //It's a group!
+          continue //Ignore the bracket
+        }
+        //Closing bracket
+        if(character === "]" && !inQuotes && inSquareBrackets){
+          if(!inSquareBrackets || currentType !== "group") throw new ISLError("Unexpected closing ']'", SyntaxError)
+          inSquareBrackets = false
+          addComponent(ISLGroup.from(currentComponent).map(x => ISLInterpreter.#restoreOriginalType({value: x, type:"identifier"})), "group", true) //Push everything as a component
+          continue //Ignore the bracket
+        }
       }
+      
 
 
       //If nothing else happened
@@ -713,41 +751,45 @@ class ISLInterpreter{
     }
     throw new ISLError("Parameter '"+varName+"' does not exist!", ReferenceError)
   }
-
+  /**
+   * 
+   * @param {string} func 
+   * @param {{type: string, value: *}[]} parameters 
+   * @returns 
+   */
   #toParameterObjects(func, parameters){
     if(this.#debug){
-      console.log("Input: function:",func,"parameters:",parameters)
+      this.#log("Input: function: '"+func+"' parameters:",parameters)
     }
     if(func === "") return;
-    let paramTypes = this.#getFunction(func).params.types
-    let paramNames = this.#getFunction(func).params.names
+    let expectedParams = this.#getFunction(func).params
     if(this.#debug){
-      console.log("Expected: names:",paramNames,"types:",paramTypes)
+      this.#log("Expected: ",expectedParams)
     }
-    //Convert array to read-only variable shit
+    //Convert array to read-only variable stuff
     let params = {}
     if(this.#debug){
-      console.log("parsing",parameters.length,"parameters")
+      this.#log("parsing",parameters.length,"parameters")
     }
-    if(parameters.length !== paramNames.length){
-      throw new ISLError("Function '"+func+"' requires "+paramNames.length+" parameter(s), but received "+parameters.length, SyntaxError)
+    if(parameters.length !== expectedParams.length){
+      throw new ISLError("Function '"+func+"' requires "+expectedParams.length+" parameter(s), but received "+parameters.length, SyntaxError)
     }
     for(let p = 0; p < parameters.length; p++){
       let parameter = parameters[p]
       if(this.#debug){
-        console.log("parameter index",p,"=>",parameter)
+        this.#log("parameter index "+p+" = ",parameter.value)
       }
-      if(paramTypes[p] !== typeof parameter){
-        throw new ISLError("Parameter '"+paramNames[p]+"' has type '"+paramTypes[p]+"', but was given an argument of type '"+typeof parameter+"'", TypeError)
+      if(expectedParams[p].type !== parameter.type){
+        throw new ISLError("Parameter '"+expectedParams[p].name+"' has type '"+expectedParams[p].type+"', but was given an argument of type '"+parameter.type+"'", TypeError)
       }
-      Object.defineProperty(params, paramNames[p], {
+      Object.defineProperty(params, expectedParams[p].name, {
         value: {
-          type: typeof parameter,
-          value: parameter
+          type: parameter.type,
+          value: parameter.value
         }
       })
       if(this.#debug){
-        console.log("new parameter",params[paramNames[p]])
+        this.#log("Parsed parameter",params[expectedParams[p].name])
       }
     }
     return params
@@ -778,7 +820,7 @@ class ISLInterpreter{
    * @param {String} varName Variable to search for.
    * @returns {{value: *, type: string}} The variable object corresponding to the name
    */
-  #getVarObj(varName){ //
+  #getVarObj(varName){
     if(this.#localVariables[varName] != null){
       return this.#localVariables[varName]
     }
@@ -843,10 +885,12 @@ class ISLInterpreter{
   static #restoreOriginalType(thing){
     //Builtins
     if(!thing) return { value: null, type: "undefined" }
-    if(!thing.value) return { value: null, type: "undefined" }
+    if(thing.value == null && thing.type !== "identifier") return { value: null, type: "undefined" }
+    if(thing.type !== "identifier") return thing
     if(thing.value === "true") return { value: true, type: "boolean" } //'True' value
     if(thing.value === "false") return { value: false, type: "boolean" } //'False' value
     if(/^-?[0-9]+(?:\.[0-9]+)?$/.test(thing.value)) return { value: parseFloat(thing.value), type: "number" }
+    if(thing.type === "group") return { value: ISLGroup.from(thing.value), type: "group" }
     if(thing.value.substring(0, 1) === "~" && thing.value.substring(1).match(/^-?[0-9]+(?:\.[0-9]+)?$/)) return { value: thing.value, type: "relpos" }
     return thing
   }
@@ -925,9 +969,12 @@ class ISLInterpreter{
       case "!=":
         return val1 !== val2
       case "in":
-        if(/^\[[^\[\]]*\]$/.test(val2)){
-          if(this.#debug) console.log("group test:",val1,"in",val2.replaceAll("🟦", " "))
-          return val2.substring(1, val2.length - 1).split("|").includes(val1)
+        if(val2 instanceof ISLGroup){
+          if(this.#debug){
+            this.#log("Value 2 is a group")
+            this.#log(val2,"contains",val1)
+          }
+          return val2.includes(val1)
         }
         return new RegExp(val1, "g").test(val2)
 
@@ -964,13 +1011,11 @@ class ISLInterpreter{
     let keyword = parts[0].value
 
     if(this.#debug){
-      console.log("parts:", statementArray)
-      console.log("part being inspected:",keyword)
-    }
-
-    if(this.#debug){
-      this.#log(parts)
-      this.#log(this.#localVariables)
+      this.#log("Part objects:",parts)
+      this.#log("Part values: '"+parts.map(x => x.value).join("', '")+"'")
+      this.#log("Existing variables:",this.#localVariables)
+      this.#log("Existing functions:",this.#functions)
+      this.#log("Keyword or label being inspected:",keyword)
     }
     if(this.#ignored.includes(keyword)){
       if(this.#debug){
@@ -996,7 +1041,7 @@ class ISLInterpreter{
         this.#log("*skipped due to function declaration")
       }
       if(keyword === "end"){
-        this.#isl_end(parts[1], parts[2])
+        this.#defaultKeywords.end.callback(this.#currentLabels, parts[1])
         this.#skipping = false
       }
     }
@@ -1007,32 +1052,56 @@ class ISLInterpreter{
       if(this.#defaultKeywords[keyword] !== undefined){
         const dkeyword = this.#defaultKeywords[keyword]
         const inputs = parts.slice(1)
+        let fallbackDescriptor = null
         if(dkeyword.descriptors){
           let len = dkeyword.descriptors.length
           for(let index = 0; index < len; index++){
-            let descriptor = dkeyword.descriptors[index]
-            this.#validateDescriptor(keyword, parts[index + 1], descriptor)
+            let descriptor = dkeyword.descriptors[index] ?? fallbackDescriptor
+            if(dkeyword.descriptors[index]?.recurring){
+              if(this.#debug) this.#log("Recurring descriptor (will accept all inputs after):")
+              if(parts[index]){
+                len = parts.length - 1
+                fallbackDescriptor = descriptor
+              }
+            }
+            if(descriptor) this.#validateDescriptor(keyword, parts[index + 1], descriptor)
           }
         }
-        dkeyword.callback.apply(this, [this.#currentLabels, ...inputs.map(x => x.value)])
+        if(this.#debug) {
+          this.#log("Validation passed")
+          this.#log("Executing keyword '"+keyword+"' with inputs", ...inputs)
+        }
+        dkeyword.callback.apply(this, [this.#currentLabels, ...inputs])
       }
       //Custom keywords
       else if(this.#customKeywords[keyword] !== undefined){
         const ckeyword = this.#customKeywords[keyword]
         const inputs = parts.slice(1)
+        let fallbackDescriptor = null
         if(ckeyword.descriptors){
           let len = ckeyword.descriptors.length
           for(let index = 0; index < len; index++){
-            let descriptor = ckeyword.descriptors[index]
-            this.#validateDescriptor(keyword, parts[index + 1], descriptor)
+            let descriptor = ckeyword.descriptors[index] ?? fallbackDescriptor
+            if(ckeyword.descriptors[index]?.recurring){
+              if(this.#debug) this.#log("Recurring descriptor (will accept all inputs after):")
+              if(parts[index]){
+                len = parts.length - 1
+                fallbackDescriptor = descriptor
+              }
+            }
+            if(descriptor) this.#validateDescriptor(keyword, parts[index + 1], descriptor)
           }
         }
-        ckeyword.callback.apply(ckeyword.source, [this, this.#currentLabels, ...inputs.map(x => x.value)])
+        if(this.#debug) {
+          this.#log("Custom validation passed")
+          this.#log("Executing (custom) keyword '"+keyword+"' with inputs", ...inputs)
+        }
+        ckeyword.callback.apply(ckeyword.source, [this, this.#currentLabels, ...inputs])
       }
 
       //Error if invalid
       else{
-        throw new ISLError("Keyword or label '"+parts[0]+"' not recognised", SyntaxError)
+        throw new ISLError("Keyword or label '"+parts[0].value+"' not recognised", SyntaxError)
       }
 
       //Clear labels
@@ -1050,11 +1119,11 @@ class ISLInterpreter{
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
   #goToLine(line){
-    if(typeof line === "string"){
-      this.#pc = this.#pc + parseInt(line.substring(1)) - 1
+    if(line.type === "relpos"){
+      this.#pc = this.#pc + parseInt(line.value.substring(1)) - 1
     }
     else {
-      this.#pc = parseInt(line) - 1
+      this.#pc = parseInt(line.value) - 1
     }
   }
   //Variable Creation
@@ -1075,19 +1144,20 @@ class ISLInterpreter{
         throw new ISLError("Cannot redeclare function '"+name+"'", ReferenceError)
       }
       else{
-        let paramNames = []
-        let paramTypes = []
-        for(let param of functionParameters){
+        let params = []
+        for(let param of functionParameters.map(x => x.value)){
           let opts = param.split(":")
-          paramNames.push(opts[0])
-          paramTypes.push(opts[1])
+          params.push({
+            name: opts[0],
+            type: opts[1]
+          })
         }
         if(this.#debug){
-          console.log("function declared with parameters",functionParameters,"=> names:",paramNames,"types:",paramTypes)
+          this.#log("function declared with parameters",functionParameters,"=>",params)
         }
-        this.#functions[name] = {indexStart: this.#counter, declared: true, ended: false, params: {names: paramNames, types: paramTypes}}
+        this.#functions[name] = {indexStart: this.#counter, declared: true, ended: false, params: params}
         if(this.#debug){
-          console.log("function object is now",this.#functions[name])
+          this.#log("function object is now",this.#functions[name])
         }
         this.#skipping = true
       }
@@ -1119,9 +1189,15 @@ class ISLInterpreter{
         let continuing = this.#callstack[0] ?? {calledFrom: 0, func: "", params: []}
         this.#counter = previous?.calledFrom ?? this.#counter
         this.#parameters = this.#toParameterObjects(continuing.func, continuing.params)
+        if(this.#debug){
+          this.#log("Moved up; Callstack is now", this.#callstack)
+        }
       }
       else{
         this.#functions[name].ended = true
+        if(this.#debug){
+          this.#log("Function declaration ended")
+        }
       }
     }
   }
@@ -1134,11 +1210,14 @@ class ISLInterpreter{
       if(inParameters.length === 0){parameters = [];}
       this.#callstack.push({calledFrom: this.#counter, func: func, params: parameters})
       if(this.#debug){
-        console.log("Function:",func,"| parameter names:",parameters)
+        this.#log("Function call; Callstack is now", this.#callstack)
+      }
+      if(this.#debug){
+        this.#log("Function:",func,"| parameter names:",parameters)
       }
       this.#parameters = this.#toParameterObjects(func, parameters)
       if(this.#debug){
-        console.log("parameter state",this.#parameters)
+        this.#log("parameter state",this.#parameters)
       }
       this.#counter = this.#getFunction(func).indexStart
     }
@@ -1146,14 +1225,11 @@ class ISLInterpreter{
   //Variable Manipulation: Binary operators
   #isl_add(variable, value){
     if(this.#doesVarExist(variable)){
-      if(value){
-        const varToModify = this.#getVarObj(variable)
-        if(this.#staticTypes && (varToModify.type !== "number" && varToModify.type !== "string")){
-          throw new ISLError("Cannot add to a variable with type '"+varToModify.type+"'", TypeError)
-        }
-        varToModify.value += value
-        varToModify.type = "number"
+      const varToModify = this.#getVarObj(variable)
+      if((varToModify.type !== "number" && varToModify.type !== "string")){
+        throw new ISLError("Cannot add to a variable with type '"+varToModify.type+"'", TypeError)
       }
+      varToModify.value += value.value
     }
     else{
       throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
@@ -1162,10 +1238,10 @@ class ISLInterpreter{
   #isl_sub(variable, value){
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
-      if(this.#staticTypes && varToModify.type !== "number"){
+      if(varToModify.type !== "number"){
         throw new ISLError("Cannot subtract from a variable with type '"+varToModify.type+"'", TypeError)
       }
-      varToModify.value -= value
+      varToModify.value -= value.value
       varToModify.type = "number"
     }
     else{
@@ -1175,10 +1251,10 @@ class ISLInterpreter{
   #isl_mult(variable, value){
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
-      if(this.#staticTypes && varToModify.type !== "number"){
+      if(varToModify.type !== "number"){
         throw new ISLError("Cannot multiply a variable with type '"+varToModify.type+"'", TypeError)
       }
-      varToModify.value *= value
+      varToModify.value *= value.value
       varToModify.type = "number"
     }
     else{
@@ -1188,10 +1264,10 @@ class ISLInterpreter{
   #isl_exp(variable, value){
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
-      if(this.#staticTypes && varToModify.type !== "number"){
+      if(varToModify.type !== "number"){
         throw new ISLError("Cannot exponentiate a variable with type '"+varToModify.type+"'", TypeError)
       }
-      varToModify.value **= value
+      varToModify.value **= value.value
       varToModify.type = "number"
     }
     else{
@@ -1201,10 +1277,10 @@ class ISLInterpreter{
   #isl_root(variable, value){
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
-      if(this.#staticTypes && varToModify.type !== "number"){
+      if(varToModify.type !== "number"){
         throw new ISLError("Cannot calculate nth root of a variable with type '"+varToModify.type+"'", TypeError)
       }
-      varToModify.value **= 1/value
+      varToModify.value **= 1/value.value
       varToModify.type = "number"
     }
     else{
@@ -1214,10 +1290,10 @@ class ISLInterpreter{
   #isl_div(variable, value){ //Now with static typing!
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
-      if(this.#staticTypes && varToModify.type !== "number"){
+      if(varToModify.type !== "number"){
         throw new ISLError("Cannot divide a variable with type '"+varToModify.type+"'", TypeError)
       }
-      varToModify.value /= value
+      varToModify.value /= value.value
       varToModify.type = "number"
     }
     else{
@@ -1228,12 +1304,12 @@ class ISLInterpreter{
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(varToModify.type === undefined){
-        varToModify.type = typeof value
+        varToModify.type = value.type
       }
-      if(this.#staticTypes && varToModify.type !== typeof value){
-        throw new ISLError("Cannot set a variable with type '"+varToModify.type+"' to a '"+typeof value+"'", TypeError)
+      if(varToModify.type !== value.type){
+        throw new ISLError("Cannot set a variable with type '"+varToModify.type+"' to a value of type '"+value.type+"'", TypeError)
       }
-      varToModify.value = value
+      varToModify.value = value.value
     }
     else{
       throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
@@ -1244,7 +1320,7 @@ class ISLInterpreter{
     if(this.#doesVarExist(variable)){
       let v = this.#getVarObj(variable)
       const varToModify = this.#getVarObj(variable)
-      if(this.#staticTypes && varToModify.type != "number"){
+      if(varToModify.type != "number"){
         throw new ISLError("Cannot round a variable with type '"+varToModify.type+"'", TypeError)
       }
       else{
@@ -1259,7 +1335,7 @@ class ISLInterpreter{
   #isl_negate(variable){
     if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
-      if(this.#staticTypes && varToModify.type != "number"){
+      if(varToModify.type != "number"){
         throw new ISLError("Cannot negate a variable with type '"+varToModify.type+"'", TypeError)
       }
       else{
@@ -1279,7 +1355,7 @@ class ISLInterpreter{
   #isl_popup_input(variable, value){
     if(this.#doesVarExist(variable)){
       let v = this.#getVarObj(variable)
-      const newValue = ISLInterpreter.#restoreOriginalType(prompt(value))
+      const newValue = ISLInterpreter.#restoreOriginalType({type: "string", value: prompt(value)})
       this.#isl_set(variable, newValue)
     }
     else{
@@ -1310,7 +1386,7 @@ class ISLInterpreter{
         output = keys.join(",")
       }
       const varToModify = this.#getVarObj(variable)
-      if(this.#staticTypes && varToModify.type != "string"){
+      if(varToModify.type != "string"){
         throw new ISLError("Variable with type '"+varToModify.type+"' cannot be set to value with type 'string'", TypeError)
       }
       else{
@@ -1332,13 +1408,13 @@ class ISLInterpreter{
     }
   }
   //Flow Control
-  #isl_if(val1, operator, val2, code){
+  #isl_if(val1, operator, val2, ...code){
     if(this.#compare(val1, operator, val2)){
-      if(this.#debug) console.log("condition met, executing {"+code.join(" ")+"}")
+      if(this.#debug) this.#log("condition met, executing '"+code.map(x => x.value).join(" ")+"'")
       this.#executeStatement(code)
     }
     else{
-      if(this.#debug) console.log("condition not met")
+      if(this.#debug) this.#log("condition not met")
     }
   }
   //Program Interface
@@ -1371,6 +1447,7 @@ class ISLInterpreter{
   }
 
   #validateDescriptor(keyword, input, descriptor){
+    if(this.#debug) this.#log("Validating input on: '"+keyword+"', input:",input,"descriptor:",descriptor)
     const actualDescriptor = {
       type: "string",
       name: "<unnamed argument>",
@@ -1383,13 +1460,10 @@ class ISLInterpreter{
       this.#warnOnce("desc.badtype","[line "+this.#pc+"] Input '"+actualDescriptor.name+"' has no type descriptor, defaulting to 'string'.")
     }
     Object.assign(actualDescriptor, descriptor)
-    /*
-    if(!this.#validators[actualDescriptor.type]){
-      this.#warnOnce("type.badval","[line "+this.#pc+"] Type '"+actualDescriptor.type+"' has no validator. Any value will be accepted.")
-      return;
+    if(!actualDescriptor.optional && !input){
+      throw new ISLError("'"+keyword+"' requires a value for input '"+actualDescriptor.name+"'", TypeError)
     }
-    */
-    if(!(actualDescriptor.optional && !input) && !isCorrectType(actualDescriptor, input) && actualDescriptor.type !== "any"){
+    if(!isCorrectType(actualDescriptor, input) && actualDescriptor.type !== "any"){
       throw new ISLError("'"+keyword+"' expects type '"+actualDescriptor.type+"'"+(actualDescriptor.optional?" or nothing":"")+" for input '"+actualDescriptor.name+"', got '"+(input?input.type:"undefined")+"' (given '"+(input?input.value:"(nothing)")+"')", TypeError)
     }
   }
@@ -1496,112 +1570,112 @@ class ISLInterpreter{
   }
   #defaultKeywords = {
     var: {
-      callback: (labels, ...inputs) => {this.#isl_declare("var", inputs[0])},
+      callback: (labels, ...inputs) => {this.#isl_declare("var", inputs[0].value)},
       descriptors: [
         {type: "identifier", name: "name"}
       ]
     },
     number: {
-      callback: (labels, ...inputs) => {this.#isl_declare("var", inputs[0], 0, "number")},
+      callback: (labels, ...inputs) => {this.#isl_declare("var", inputs[0].value, 0, "number")},
       descriptors: [
         {type: "identifier", name: "name"}
       ]
     },
     string: {
-      callback: (labels, ...inputs) => {this.#isl_declare("var", inputs[0], "", "string")},
+      callback: (labels, ...inputs) => {this.#isl_declare("var", inputs[0].value, "", "string")},
       descriptors: [
         {type: "identifier", name: "name"}
       ]
     },
     function: {
-      callback: (labels, ...inputs) => {this.#isl_declare("cmd", inputs[0], undefined, "function", inputs.slice(1))},
+      callback: (labels, ...inputs) => {this.#isl_declare("cmd", inputs[0].value, undefined, "function", inputs.slice(1))},
       descriptors: [
         {type: "identifier", name: "name"}
       ]
     },
     delete: {
-      callback: (labels, ...inputs) => {this.#isl_delete(inputs[0])},
+      callback: (labels, ...inputs) => {this.#isl_delete(inputs[0].value)},
       descriptors: [
         {type: "identifier", name: "name"}
       ]
     },
     end: {
-      callback: (labels, ...inputs) => {this.#isl_end(inputs[0])},
+      callback: (labels, ...inputs) => {this.#isl_end(inputs[0].value)},
       descriptors: [
         {type: "identifier", name: "name"}
       ]
     },
     execute: {
-      callback: (labels, ...inputs) => {this.#isl_execute(inputs[0], ...inputs.slice(1))},
+      callback: (labels, ...inputs) => {this.#isl_execute(inputs[0].value, ...inputs.slice(1))},
       descriptors: [
         {type: "identifier", name: "name"}
       ]
     },
     set: {
-      callback: (labels, ...inputs) => {this.#isl_set(inputs[0], inputs[1])},
+      callback: (labels, ...inputs) => {this.#isl_set(inputs[0].value, inputs[1])},
       descriptors: [
         {type: "identifier", name: "name"},
         {type: "any", name: "value"}
       ]
     },
     add: {
-      callback: (labels, ...inputs) => {this.#isl_add(inputs[0], inputs[1])},
+      callback: (labels, ...inputs) => {this.#isl_add(inputs[0].value, inputs[1])},
       descriptors: [
         {type: "identifier", name: "name"},
         {type: "any", name: "value"}
       ]
     },
     subtract: {
-      callback: (labels, ...inputs) => {this.#isl_sub(inputs[0], inputs[1])},
+      callback: (labels, ...inputs) => {this.#isl_sub(inputs[0].value, inputs[1])},
       descriptors: [
         {type: "identifier", name: "name"},
         {type: "number", name: "value"}
       ]
     },
     multiply: {
-      callback: (labels, ...inputs) => {this.#isl_mult(inputs[0], inputs[1])},
+      callback: (labels, ...inputs) => {this.#isl_mult(inputs[0].value, inputs[1])},
       descriptors: [
         {type: "identifier", name: "name"},
         {type: "number", name: "value"}
       ]
     },
     divide: {
-      callback: (labels, ...inputs) => {this.#isl_div(inputs[0], inputs[1])},
+      callback: (labels, ...inputs) => {this.#isl_div(inputs[0].value, inputs[1])},
       descriptors: [
         {type: "identifier", name: "name"},
         {type: "number", name: "value"}
       ]
     },
     round: {
-      callback: (labels, ...inputs) => {this.#isl_round(inputs[0])},
+      callback: (labels, ...inputs) => {this.#isl_round(inputs[0].value)},
       descriptors: [
         {type: "identifier", name: "name"}
       ]
     },
     exponent: {
-      callback: (labels, ...inputs) => {this.#isl_exp(inputs[0], inputs[1])},
+      callback: (labels, ...inputs) => {this.#isl_exp(inputs[0].value, inputs[1])},
       descriptors: [
         {type: "identifier", name: "name"},
         {type: "number", name: "power"}
       ]
     },
     root: {
-      callback: (labels, ...inputs) => {this.#isl_root(inputs[0], inputs[1])},
+      callback: (labels, ...inputs) => {this.#isl_root(inputs[0].value, inputs[1])},
       descriptors: [
         {type: "identifier", name: "name"},
         {type: "number", name: "root"}
       ]
     },
     negate: {
-      callback: (labels, ...inputs) => {this.#isl_negate(inputs[0])},
+      callback: (labels, ...inputs) => {this.#isl_negate(inputs[0].value)},
       descriptors: [
         {type: "identifier", name: "name"}
       ]
     },
     log: {
-      callback: (labels, ...inputs) => {this.#isl_log(...inputs)},
+      callback: (labels, ...inputs) => {this.#isl_log(...inputs.map(x => x.value))},
       descriptors: [
-        {type: "any", name: "message"}
+        {type: "any", name: "message", recurring: true}
       ]
     },
     flush: {
@@ -1616,21 +1690,21 @@ class ISLInterpreter{
       descriptors: []
     },
     "popup-input": {
-      callback: (labels, ...inputs) => {this.#isl_popup_input(inputs[0], inputs[1])},
+      callback: (labels, ...inputs) => {this.#isl_popup_input(inputs[0].value, inputs[1].value)},
       descriptors: [
         {type: "identifier", name: "target"},
         {type: "any", name: "message"}
       ]
     },
     awaitkey: {
-      callback: (labels, ...inputs) => {this.#isl_awaitkey(inputs[0], inputs[1])},
+      callback: (labels, ...inputs) => {this.#isl_awaitkey(inputs[0].value, inputs[1].value)},
       descriptors: [
         {type: "identifier", name: "target"},
         {type: "keyword", name: "manipulator"}
       ],
     },
     getkeys: {
-      callback: (labels, ...inputs) => {this.#isl_getkeys(inputs[0], inputs[1])},
+      callback: (labels, ...inputs) => {this.#isl_getkeys(inputs[0].value, inputs[1].value)},
       descriptors: [
         {type: "identifier", name: "target"},
         {type: "keyword", name: "manipulator"}
@@ -1650,7 +1724,7 @@ class ISLInterpreter{
     },
     rundelay: {
       callback: (labels, ...inputs) => {
-        this.executeSpeed = inputs[0]
+        this.executeSpeed = inputs[0].value
       },
       descriptors: [
         {type: "number", name: "speed"}
@@ -1664,7 +1738,7 @@ class ISLInterpreter{
     },
     pause: {
       callback: (labels, ...inputs) => {
-        this.#waits += inputs[0]
+        this.#waits += inputs[0].value
       },
       descriptors: [
         {type: "number", name: "delay"}
@@ -1672,13 +1746,13 @@ class ISLInterpreter{
     },
     if: {
       callback: (labels, ...inputs) => {
-        this.#isl_if(inputs[0], inputs[1], inputs[2], inputs.slice(3))
+        this.#isl_if(inputs[0].value, inputs[1].value, inputs[2].value, ...inputs.slice(3))
       },
       descriptors: [
         {type: "any", name: "value 1"},
         {type: "comparator", name: "comparator"},
         {type: "any", name: "value 2"},
-        {type: "any", name: "code"}
+        {type: "any", name: "code", recurring: true}
       ],
     },
     jump: {
@@ -1691,7 +1765,7 @@ class ISLInterpreter{
     },
     export: {
       callback: (labels, ...inputs) => {
-        this.#isl_export(inputs[0], inputs[1])
+        this.#isl_export(inputs[0].value, inputs[1].value)
       },
       descriptors: [
         {type: "identifier", name: "local"},
@@ -1700,7 +1774,7 @@ class ISLInterpreter{
     },
     import: {
       callback: (labels, ...inputs) => {
-        this.#isl_import(inputs[0], inputs[1])
+        this.#isl_import(inputs[0].value, inputs[1].value)
       },
       descriptors: [
         {type: "string", name: "external"},
@@ -1727,6 +1801,28 @@ class ISLError extends Error{
   constructor(message, type){
     super(message)
     this.type = type
+  }
+}
+
+class ISLGroup extends Array{
+  /**
+   * Creates a group from a string of the form `a|b|c`
+   * @param {string} string A `|`-separated list of values, as a string.
+   * @returns {ISLGroup} The group containing those values.
+   */
+  static from(string){
+    let grp = new this()
+    let arr = string.split("|")
+    for(let i = 0; i < arr.length; i ++){
+      grp[i] = arr[i]
+    }
+    return grp
+  }
+  includes(searchElement, fromIndex = 0){
+    return Array.from(this.map(x => x?x.value:undefined)).includes(searchElement, fromIndex)
+  }
+  toString(){
+    return "["+this.map(x => x.value).join("|")+"]"
   }
 }
 
