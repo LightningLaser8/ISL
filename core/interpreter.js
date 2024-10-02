@@ -910,7 +910,7 @@ class ISLInterpreter{
     if(thing.value === "false") return { value: false, type: "boolean" } //'False' value
     if(/^-?[0-9]+(?:\.[0-9]+)?$/.test(thing.value)) return { value: parseFloat(thing.value), type: "number" }
     if(thing.type === "group") return { value: ISLGroup.from(thing.value), type: "group" }
-    if(thing.value.substring(0, 1) === "~" && thing.value.substring(1).match(/^-?[0-9]+(?:\.[0-9]+)?$/)) return { value: thing.value, type: "relpos" }
+    if(thing.value.match(/^~-?[0-9]+(?:\.[0-9]+)?$/)) return { value: thing.value, type: "relpos" }
     return thing
   }
   #log(...msg){
