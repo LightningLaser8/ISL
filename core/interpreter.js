@@ -46,7 +46,7 @@ class ISLInterpreter{
   #counter = 0
   #lastErrorLine = 0
   #stopped = false
-  #executor
+  #executor = null
 
   //Vars
   #localVariables = {}
@@ -354,7 +354,10 @@ class ISLInterpreter{
           this.#executeLineInternal(this.#isl[this.#counter])
           this.#counter ++
           if(this.#pc > this.#isl.length){
-            this.#reset()
+            this.#fullReset()
+            if(this.#debug){
+              this.#log("End of program reached.")
+            }
           }
         }
         else{
@@ -418,7 +421,7 @@ class ISLInterpreter{
           }
           else{
             for(let i = 0; i < this.#instructionsAtOnce; i ++){
-              this.#executeISL()
+              if(!this.#stopped) this.#executeISL()
             }
           }
         }
@@ -862,20 +865,36 @@ class ISLInterpreter{
     this.#counter = 0
     this.#localVariables = {}
     this.#functions = {}
+    this.#callstack = []
+    this.#parameters = {}
+    this.#console.splice(0)
   }
   /**
-   * Tries to parse the input as a number.
-   * @param {*} thing 
-   * @returns {Number | *} The input as a number, if applicable. If not, returns the original input.
+   * Completely resets everything, except for internal storage.
    */
-  static #tryToNum(thing){
-    let test = parseFloat(thing)
-    if(isNaN(test) || test != thing){
-      return thing
+  #fullReset(){
+    this.#stopExecutionDestructive()
+    this.#counter = 0
+    this.#lastErrorLine = 0
+    this.#stopped = true
+    this.#executor = null
+    this.#listeningForKeyPress = false
+    this.#waits = 0
+    //Reset meta
+    this.#ignored = []
+    if(this.#debug){
+      this.#log("Interpreter reset.")
     }
-    else{
-      return test
-    }
+  }
+  /**
+   * Stops everything, and clears stored ISL.
+   */
+  clear(){
+    this.#fullReset()
+    this.#filename = "<direct execution>"
+    this.#isl.splice(0)
+    this.#realFilename = ""
+    this.#loaded = false
   }
   /**
    * Tries to get the input as anything other than a string.
@@ -1732,7 +1751,8 @@ class ISLInterpreter{
     },
     stop: {
       callback: (labels, ...inputs) => {
-        this.stopExecution()
+        if(this.#debug) this.#log("Program stopped by keyword.")
+        this.#fullReset()
       },
       descriptors: [],
     },
