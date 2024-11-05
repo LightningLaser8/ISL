@@ -676,6 +676,7 @@ class ISLInterpreter{
         if(character === "]" && !inQuotes && !inBackslashes){
           if(!inSquareBrackets) throw new ISLError("Unexpected closing ']'", SyntaxError)
           inSquareBrackets = false
+          addComponent(currentComponent) //End group
           let newGrp = pushContext
           pushContext = components
           addComponent(newGrp, "group", true) //Push everything as a component
@@ -1281,84 +1282,53 @@ class ISLInterpreter{
   }
   //Variable Manipulation: Binary operators
   #isl_add(variable, value){
-    if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if((varToModify.type !== "number" && varToModify.type !== "string")){
         throw new ISLError("Cannot add to a variable with type '"+varToModify.type+"'", TypeError)
       }
       varToModify.value += value.value
-    }
-    else{
-      throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
-    }
   }
   #isl_sub(variable, value){
-    if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(varToModify.type !== "number"){
         throw new ISLError("Cannot subtract from a variable with type '"+varToModify.type+"'", TypeError)
       }
       varToModify.value -= value.value
       varToModify.type = "number"
-    }
-    else{
-      throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
-    }
   }
   #isl_mult(variable, value){
-    if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(varToModify.type !== "number"){
         throw new ISLError("Cannot multiply a variable with type '"+varToModify.type+"'", TypeError)
       }
       varToModify.value *= value.value
       varToModify.type = "number"
-    }
-    else{
-      throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
-    }
   }
   #isl_exp(variable, value){
-    if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(varToModify.type !== "number"){
         throw new ISLError("Cannot exponentiate a variable with type '"+varToModify.type+"'", TypeError)
       }
       varToModify.value **= value.value
       varToModify.type = "number"
-    }
-    else{
-      throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
-    }
   }
   #isl_root(variable, value){
-    if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(varToModify.type !== "number"){
         throw new ISLError("Cannot calculate nth root of a variable with type '"+varToModify.type+"'", TypeError)
       }
       varToModify.value **= 1/value.value
       varToModify.type = "number"
-    }
-    else{
-      throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
-    }
   }
   #isl_div(variable, value){ //Now with static typing!
-    if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(varToModify.type !== "number"){
         throw new ISLError("Cannot divide a variable with type '"+varToModify.type+"'", TypeError)
       }
       varToModify.value /= value.value
       varToModify.type = "number"
-    }
-    else{
-      throw new ISLError("Variable '"+variable+"' does not exist!",ReferenceError)
-    }
   }
   #isl_set(variable, value){
-    if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(varToModify.type === undefined){
         varToModify.type = value.type
@@ -1367,14 +1337,9 @@ class ISLInterpreter{
         throw new ISLError("Cannot set a variable with type '"+varToModify.type+"' to a value of type '"+value.type+"'", TypeError)
       }
       varToModify.value = value.value
-    }
-    else{
-      throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
-    }
   }
   //Variable Manipulation: Unary operators
   #isl_round(variable){
-    if(this.#doesVarExist(variable)){
       let v = this.#getVarObj(variable)
       const varToModify = this.#getVarObj(variable)
       if(varToModify.type != "number"){
@@ -1384,13 +1349,8 @@ class ISLInterpreter{
         varToModify.type = "number"
       }
       varToModify.value = Math.round(v.value)
-    }
-    else{
-      throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
-    }
   }
   #isl_negate(variable){
-    if(this.#doesVarExist(variable)){
       const varToModify = this.#getVarObj(variable)
       if(varToModify.type != "number"){
         throw new ISLError("Cannot negate a variable with type '"+varToModify.type+"'", TypeError)
@@ -1399,10 +1359,6 @@ class ISLInterpreter{
         varToModify.type = "number"
       }
       varToModify.value = -varToModify.value
-    }
-    else{
-      throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
-    }
   }
   //IO
   #isl_log(...value){
@@ -1410,30 +1366,20 @@ class ISLInterpreter{
     this.#flush()
   }
   #isl_popup_input(variable, value){
-    if(this.#doesVarExist(variable)){
       let v = this.#getVarObj(variable)
       const newValue = ISLInterpreter.#restoreOriginalType({type: "string", value: prompt(value)})
       this.#isl_set(variable, newValue)
-    }
-    else{
-      throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
-    }
   }
   #isl_awaitkey(variable, type = "set"){
-    if(this.#doesVarExist(variable)){
+    this.#getVarObj(variable)
       this.#listeningForKeyPress = true
       if(this.#debug){
         this.#log("Awaiting key press...")
       }
       this.#listenerTarget = variable
       this.#listenerManipulationType = type
-    }
-    else{
-      throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
-    }
   }
   #isl_getkeys(variable, type = "set"){
-    if(this.#doesVarExist(variable)){
       let keys = Object.getOwnPropertyNames(this.#pressed)
       let output = ""
       if(this.#currentLabels.includes("grouped")){
@@ -1459,10 +1405,6 @@ class ISLInterpreter{
       else{
         throw new ISLError("Type "+type+" for 'getkeys' not recognised, should be 'add' or 'set'", SyntaxError)
       }
-    }
-    else{
-      throw new ISLError("Variable '"+variable+"' does not exist!", ReferenceError)
-    }
   }
   //Flow Control
   #isl_if(val1, operator, val2, ...code){
