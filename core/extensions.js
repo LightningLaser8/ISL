@@ -15,22 +15,34 @@ Extensions can provide keywords, labels, variables and types to an ISL interpret
 /**
  * An ISL extension. Provides a set of custom keywords, variables, labels and types to an interpreter when imported.
  */
-class ISLExtension{
-  #keywords = {}
-  #variables = {}
-  #types = []
-  #labels = []
-  #identifier = ""
+class ISLExtension {
+  #keywords = {};
+  #variables = {};
+  #types = [];
+  #labels = [];
+  #identifier = "";
   /**
    * @param {string} id Identifier for the extension, used in ISL meta tags for dependency
    */
-  constructor(id){this.#identifier = id}
+  constructor(id) {
+    this.#identifier = id;
+  }
   /**  */
-  get types(){return this.#types}
-  get labels(){return this.#labels}
-  get keywords(){return this.#keywords}
-  get variables(){return this.#variables}
-  get id(){return this.#identifier}
+  get types() {
+    return this.#types;
+  }
+  get labels() {
+    return this.#labels;
+  }
+  get keywords() {
+    return this.#keywords;
+  }
+  get variables() {
+    return this.#variables;
+  }
+  get id() {
+    return this.#identifier;
+  }
 
   /**
    * Adds a custom keyword to this extension.
@@ -51,8 +63,8 @@ class ISLExtension{
      -  ]
      -})
    */
-  addKeyword(name, callback, descriptors){
-    this.#keywords[name] = {callback: callback, descriptors: descriptors}
+  addKeyword(name, callback, descriptors) {
+    this.#keywords[name] = { callback: callback, descriptors: descriptors };
   }
   /**
    * Adds a variable to be turned into a global variable on import.
@@ -61,29 +73,29 @@ class ISLExtension{
    * @param {string} type Optional type override. If left blank, type is inferred from `value`.
    * @returns the ISL variable object created, for further use
    */
-  addVariable(name, value, type = typeof value){
-    const obj = {value: value, type: type}
-    this.#variables[name] = obj
-    return obj
+  addVariable(name, value, type = typeof value) {
+    const obj = { value: value, type: type };
+    this.#variables[name] = obj;
+    return obj;
   }
   /**
    * Adds a label for keywords.
    * @param {string} name The name of the label. What the interpreter should look out for.
    * @param {Array<string>} wordsFor Keywords this label is for.
    */
-  addLabel(name, wordsFor){
-    this.#labels.push({label: name, for: [...wordsFor]})
+  addLabel(name, wordsFor) {
+    this.#labels.push({ label: name, for: [...wordsFor] });
   }
   /**
    * Adds a new type of value to the extension.
    * @param {string} name Name of this new type.
    * @param {(value) => boolean} validator Function to automatically convert an identifier to a type. Should return true if the input matches type, false if not.
    */
-  addType(name, validator = (value) => true){
-    const type = {name: name, validator: validator}
-    this.#types.push(type)
-    return type
+  addType(name, validator = (value) => true) {
+    const type = { name: name, validator: validator };
+    this.#types.push(type);
+    return type;
   }
 }
 
-export { ISLExtension }
+export { ISLExtension };

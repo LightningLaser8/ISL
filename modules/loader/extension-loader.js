@@ -17,10 +17,12 @@ async function extendInterpreterFromFile(interpreter, path) {
   const result = await loadExtensionsFromFile(path);
   for (let extension of result) {
     if (extension.isClass) {
-      Object.defineProperty(extension.ext.prototype, "source", {value:extension.url})
+      Object.defineProperty(extension.ext.prototype, "source", {
+        value: extension.url,
+      });
       interpreter.classExtend(extension.ext);
     } else {
-      Object.defineProperty(extension.ext, "source", {value:extension.url})
+      Object.defineProperty(extension.ext, "source", { value: extension.url });
       interpreter.extend(extension.ext);
     }
   }
@@ -75,7 +77,8 @@ async function getExtensions(
 ) {
   const start = Date.now();
   const extensions = [];
-  if([".", "/"].includes(url.trim()[0])) console.warn("Relative URLs ("+url+") should not be used.")
+  if ([".", "/"].includes(url.trim()[0]))
+    console.warn("Relative URLs (" + url + ") should not be used.");
   if (extensionList === "*") {
     try {
       const out = await requestModule(url);
@@ -133,7 +136,7 @@ async function requestModule(url) {
                   name: extName,
                   id: instance.id,
                   isClass: true,
-                  url: url
+                  url: url,
                 });
               }
             } else if (extension[Symbol.toStringTag] === "ISLExtension") {
@@ -142,7 +145,7 @@ async function requestModule(url) {
                 name: extName,
                 id: extension.id,
                 isClass: false,
-                url: url
+                url: url,
               });
             }
           }
@@ -183,7 +186,7 @@ async function requestSpecificExtension(url, extName) {
                 name: extName,
                 id: instance.id,
                 isClass: true,
-                url: url
+                url: url,
               });
             }
           } else if (extension[Symbol.toStringTag] === "ISLExtension") {
@@ -192,7 +195,7 @@ async function requestSpecificExtension(url, extName) {
               name: extName,
               id: extension.id,
               isClass: false,
-              url: url
+              url: url,
             });
           } else {
             reject(
