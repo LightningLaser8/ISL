@@ -246,7 +246,7 @@ class GraphicsExtension extends ISLExtension {
       {type: "number", name: "height"}
     ])
     this.addKeyword("rectangle", function(interpreter, labels, x, y, width, height){
-        this.#drawBuffer.push({type: this.#isl_rect, params: [labels, x, y, width, height].map(x => x.value), options: structuredClone(this.#canvasSettings)})
+        this.#drawBuffer.push({type: this.#isl_rect, params: [labels].concat([x, y, width, height].map(x => x?x.value:undefined)), options: structuredClone(this.#canvasSettings)})
     }, [
       {type: "number", name: "x"},
       {type: "number", name: "y"},
@@ -254,7 +254,7 @@ class GraphicsExtension extends ISLExtension {
       {type: "number", name: "height"}
     ])
     this.addKeyword("ellipse", function(interpreter, labels, x, y, width, height){
-        this.#drawBuffer.push({type: this.#isl_ellipse, params: [labels, x, y, width, height].map(x => x.value), options: structuredClone(this.#canvasSettings)})
+        this.#drawBuffer.push({type: this.#isl_ellipse, params: [labels].concat([x, y, width, height].map(x => x?x.value:undefined)), options: structuredClone(this.#canvasSettings)})
     }, [
       {type: "number", name: "x"},
       {type: "number", name: "y"},
@@ -262,14 +262,14 @@ class GraphicsExtension extends ISLExtension {
       {type: "number", name: "height"}
     ])
     this.addKeyword("circle", function(interpreter, labels, x, y, radius){
-        this.#drawBuffer.push({type: this.#isl_circle, params: [labels, x, y, radius].map(x => x.value), options: structuredClone(this.#canvasSettings)})
+        this.#drawBuffer.push({type: this.#isl_circle, params: [labels].concat([x, y, radius].map(x => x?x.value:undefined)), options: structuredClone(this.#canvasSettings)})
     }, [
       {type: "number", name: "x"},
       {type: "number", name: "y"},
       {type: "number", name: "radius"}
     ])
     this.addKeyword("text", function(interpreter, labels, x, y, text, maxWidth){
-        this.#drawBuffer.push({type: this.#isl_text, params: [labels, x, y, text, maxWidth].map(x => x.value), options: structuredClone(this.#canvasSettings)})
+        this.#drawBuffer.push({type: this.#isl_text, params: [labels].concat([x, y, text, maxWidth].map(x => x?x.value:undefined)), options: structuredClone(this.#canvasSettings)})
     }, [
       {type: "number", name: "x"},
       {type: "number", name: "y"},

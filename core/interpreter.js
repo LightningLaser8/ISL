@@ -524,6 +524,24 @@ class ISLInterpreter{
       }
     }
   }
+  #getVariableFromRef(contents, type = "variable"){
+    //Figure out what this is
+    if(type === "global-variable"){
+      return this.#getGlobalVarObj(contents.substring(1))
+    }
+    if(type === "parameter"){
+      return this.#getParameterObj(contents)
+    }
+    if(this.#callstack.length > 0 && type !== "local-variable"){
+      let obj;
+      try{obj =  this.#getParameterObj(contents)}
+      catch(e){
+        obj = this.#getVarObj(contents)
+      }
+      return obj;
+    }
+    return this.#getVarObj(contents)
+  }
   /**
    * Parses a line of ISL code into an array of ISL parts.
    * @param {string} line Line of ISL code.
@@ -535,6 +553,7 @@ class ISLInterpreter{
     let currentComponent = ""
     let components = []
     let currentType = "identifier"
+    let pushContext = components
     if(this.#debug) this.#log("Parsing line '"+line+"'")
     let removeComponent = () => {
       let removed = components.pop()
@@ -543,7 +562,10 @@ class ISLInterpreter{
       }
     }
     let addComponent = (content = "", type = currentType, setType = false) => {
-      if(!isComponent(currentComponent)) return; //Remove bad components
+      if(!isComponent(content)){
+        this.#log("'"+content+"' is not a valid component, skipping")
+        return;
+      } //Remove bad components
       if(this.#debug){
         this.#log("Component: '"+content+"' type '"+type+"'")
       }
@@ -564,8 +586,8 @@ class ISLInterpreter{
           else this.#log("No object!")
       }
       if(obj.value !== null){
-        components.push(obj)
-        if(this.#debug) this.#log("Added to parts")
+        pushContext.push(obj)
+        if(this.#debug) this.#log("Added to parts: ",obj)
       }
       else{
         if(this.#debug) this.#log("Skipped, value was null")
@@ -574,7 +596,7 @@ class ISLInterpreter{
       currentComponent = ""
     }
     let isComponent = component => {
-      return component.length > 0 || currentType !== "identifier"
+      return component instanceof ISLGroup || component.length > 0 || currentType !== "identifier"
     }
     for(let index = 0; index < line.length; index++){
       let character = line[index]
@@ -603,7 +625,7 @@ class ISLInterpreter{
 
         //VAR REFS
         //Opening backslash
-        if(character === "\\" && !inQuotes && !inSquareBrackets && !inBackslashes){
+        if(character === "\\" && !inQuotes && !inBackslashes){
           inBackslashes = true
           addComponent(currentComponent) //Push everything before as a component
           currentType = "variable"
@@ -620,27 +642,12 @@ class ISLInterpreter{
           continue //Ignore the slash
         }
         //Closing backslash
-        if(character === "\\" && !inQuotes && !inSquareBrackets && inBackslashes){
+        if(character === "\\" && !inQuotes && inBackslashes){
           inBackslashes = false
           if(currentType !== "variable" && currentType !== "local-variable" && currentType !== "parameter" && currentType !== "global-variable") throw new ISLError("Unexpected closing '\\'", SyntaxError)
           if(this.#debug) this.#log("Variable getter with type: '"+currentType+"' ended")
           let obj = null
-          //Figure out what this is
-          if(currentType === "global-variable"){
-            obj = this.#getGlobalVarObj(currentComponent.substring(1))
-          }
-          else if(currentType === "parameter"){
-            obj = this.#getParameterObj(currentComponent)
-          }
-          else if(this.#callstack.length > 0 && currentType !== "local-variable"){
-            try{obj =  this.#getParameterObj(currentComponent)}
-            catch(e){
-              obj = this.#getVarObj(currentComponent)
-            }
-          }
-          else{
-            obj = this.#getVarObj(currentComponent)
-          }
+          obj = this.#getVariableFromRef(currentComponent,currentType);
           addComponent(obj.value, obj.type, true) //Push the variable content as a component
           currentComponent = "" //Clear component
           continue //You get it by now
@@ -648,17 +655,34 @@ class ISLInterpreter{
 
         //BRACKETS
         //Opening bracket
-        if(character === "[" && !inQuotes && !inSquareBrackets){
+        if(character === "[" && !inQuotes && !inSquareBrackets && !inBackslashes){
           inSquareBrackets = true
           addComponent(currentComponent) //Push everything before as a component
-          currentType = "group" //It's a group!
+          pushContext = new ISLGroup() //Create group
+          if(this.#debug){
+            this.#log("Start of group [")
+          }
           continue //Ignore the bracket
         }
+        if(character === "|" && !inQuotes && inSquareBrackets && !inBackslashes ){
+          addComponent(currentComponent)
+          currentType = "identifier"
+          if(this.#debug){
+            this.#log("| Separator")
+          }
+          continue
+        }
         //Closing bracket
-        if(character === "]" && !inQuotes && inSquareBrackets){
-          if(!inSquareBrackets || currentType !== "group") throw new ISLError("Unexpected closing ']'", SyntaxError)
+        if(character === "]" && !inQuotes && !inBackslashes){
+          if(!inSquareBrackets) throw new ISLError("Unexpected closing ']'", SyntaxError)
           inSquareBrackets = false
-          addComponent(ISLGroup.from(currentComponent).map(x => ISLInterpreter.#restoreOriginalType({value: x, type:"identifier"})), "group", true) //Push everything as a component
+          let newGrp = pushContext
+          pushContext = components
+          addComponent(newGrp, "group", true) //Push everything as a component
+          console.log(components.at(-1))
+          if(this.#debug){
+            this.#log("] End of group: "+newGrp)
+          }
           continue //Ignore the bracket
         }
       }
@@ -735,24 +759,10 @@ class ISLInterpreter{
   /**
    * Gets parameter value from declared name. Throws an error if it doesn't exist.
    * @param {String} varName Parameter name to search for.
-   * @returns {Number|String} The value of the object corresponding to the name
-   */
-  #getParameter(varName){
-    if(this.#parameters[varName] != null){
-      return this.#parameters[varName].value
-    }
-    throw new ISLError("Parameter '"+varName+"' does not exist!", ReferenceError)
-  }
-  /**
-   * Gets parameter value from declared name. Throws an error if it doesn't exist.
-   * @param {String} varName Parameter name to search for.
    * @returns {{value: *, type: string}} The value of the object corresponding to the name
    */
   #getParameterObj(varName){
-    if(this.#parameters[varName] != null){
-      return this.#parameters[varName]
-    }
-    throw new ISLError("Parameter '"+varName+"' does not exist!", ReferenceError)
+    return this.#getVariableInContext(varName, this.#parameters, "parameter")
   }
   /**
    * 
@@ -799,12 +809,7 @@ class ISLInterpreter{
   }
 
   setVar(varName, value){
-    if(this.#localVariables[varName] != null){
-      this.#localVariables[varName].value = value
-    }
-    else{
-      throw new ISLError("Variable '"+varName+"' does not exist!", ReferenceError)
-    }
+    this.#getVarObj(varName).value = value;
   }
   /**
    * Gets function from declared name. Throws an error if it doesn't exist.
@@ -818,16 +823,52 @@ class ISLInterpreter{
     throw new ISLError("Function '"+funcName+"' does not exist!", ReferenceError)
   }
 
+  #getVariableInContext(pathString, startPoint = this.#localVariables, type = "variable"){
+    let path = pathString.split(".")
+    let source = startPoint
+    let obj = null
+    if(this.#debug){
+      this.#log("Finding variable from path: '"+pathString+"' -> ",path)
+    }
+    for(let index = 0; index < path.length; index ++){
+      let id = path[index]
+      if(this.#debug){
+        this.#log("Iteration "+index+": Source is",source)
+      }
+      if([this.#localVariables, this.#globalVariables, this.#parameters].includes(source)){
+        source = source[path[index]]
+      }
+      else{
+        if(!source?.value) throw new ISLError("Property '"+path[index - 1]+"' has no value!",ReferenceError)
+        source = source.value[path[index]]
+      }
+      if(this.#debug){
+        this.#log("New source is",source)
+      }
+      if(source == null){
+        if(path[index-1]==null) throw new ISLError(type[0].toUpperCase()+type.substring(1).split("-").join(" ")+" '"+path[index]+"' does not exist",ReferenceError)
+        throw new ISLError("Property '"+path[index]+"' does not exist on '"+path[index - 1]+"'",ReferenceError)
+      }
+    }
+    obj = source
+    if(this.#debug){
+      this.#log("Final object with path: '"+pathString+"' =",obj,"("+path.at(-1)+")")
+    }
+    
+    if(typeof obj !== "object"){
+      obj = ISLInterpreter.#restoreOriginalType({value: obj, type: "identifier"})
+      if(obj.type === "identifier") obj.type = "string"
+    }
+    return obj
+  }
   /**
    * Gets variable object from declared name. Throws an error if it doesn't exist.
    * @param {String} varName Variable to search for.
    * @returns {{value: *, type: string}} The variable object corresponding to the name
    */
   #getVarObj(varName){
-    if(this.#localVariables[varName] != null){
-      return this.#localVariables[varName]
-    }
-    throw new ISLError("Variable '"+varName+"' does not exist!", ReferenceError)
+    return this.#getVariableInContext(varName, this.#localVariables)
+    //throw new ISLError("Variable '"+varName+"' does not exist!", ReferenceError)
   }
   /**
    * Gets global variable object from declared name. Throws an error if it doesn't exist.
@@ -835,10 +876,7 @@ class ISLInterpreter{
    * @returns {{value: *, type: string}} The variable object corresponding to the name
    */
   #getGlobalVarObj(varName){ //
-    if(this.#globalVariables[varName] != null){
-      return this.#globalVariables[varName]
-    }
-    throw new ISLError("Global variable '"+varName+"' does not exist!", ReferenceError)
+    return this.#getVariableInContext(varName, this.#globalVariables, "global-variable")
   }
   /**
    * Resets the interpreter to the start. Soft resets all local variables.
@@ -1473,7 +1511,7 @@ class ISLInterpreter{
       optional: false
     }
     let isCorrectType = (descriptor, input) => {
-      return descriptor.type.split("|").includes(input?input.type:"undefined")
+      return descriptor.type.split("|").includes(input?input.type:"undefined")|| (input == undefined && descriptor.optional)
     }
     if(descriptor && !descriptor.type) {
       this.#warnOnce("desc.badtype","[line "+this.#pc+"] Input '"+actualDescriptor.name+"' has no type descriptor, defaulting to 'string'.")
