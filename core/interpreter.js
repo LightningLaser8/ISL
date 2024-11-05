@@ -35,13 +35,18 @@ class ISLInterpreter{
   environment = "js"
 
   //ISL meta
-  #meta = {}
-  #ignored = [] //reset this when file changes?
+  #meta = {
+    required: [],
+    ignored: [],
+    tags: [],
+    filename: "<direct execution>",
+    realFilename: "",
+    strictMode: false,
+  }
+  //reset this when file changes?
 
   //Execution
   #isl = []
-  #filename = "<direct execution>"
-  #realFilename = ""
   #loaded = false
   #counter = 0
   #lastErrorLine = 0
@@ -211,13 +216,14 @@ class ISLInterpreter{
         this.#nameString+" "+
         ((error instanceof ISLError)?
         ("Error detected; execution halted\n"+
-        (error.message.length > 0?error.message:"(No message provided)")+"\n  -> line "+this.#lastErrorLine+" in "+this.#filename+
+        (error.message.length > 0?error.message:"(No message provided)")+"\n  -> line "+this.#lastErrorLine+" in "+this.#meta.filename+
         "\nDetails: \n  Error Type: "+(error.type?.name??"unknown")+
         "\n  Stacktrace: \n"+ this.#stacktrace+
+        (this.#meta.strictMode?"\n[Strict Mode Enabled]":"")+
         "\n\nRun with options.reportErrors = false to hide this and all further errors from this interpreter"):
         error instanceof Error?
         ("Error detected; execution halted\n"+
-          "Internal "+error.constructor.name+"\nwhile running line "+this.#lastErrorLine+" in "+this.#filename+":"+
+          "Internal "+error.constructor.name+"\nwhile running line "+this.#lastErrorLine+" in "+this.#meta.filename+":"+
           "\n "+(error.message.length > 0?"'"+error.message+"'":"(No message provided)")+
           "\nDetails: \n  Error Type: "+error.constructor.name+
           "\n  Interpreter Stacktrace:\n"+ error.stack.split("\n").slice(1).join("\n"))+
@@ -272,7 +278,7 @@ class ISLInterpreter{
   get #stacktrace(){
     let stack = [
       "  -> on '"+(this.#name)+"' ("+this.constructor.name+")",
-      "  -> in file '"+this.#filename+"'"+(this.#realFilename?(" ("+this.#realFilename+")"):"")
+      "  -> in file '"+this.#meta.filename+"'"+(this.#meta.realFilename?(" ("+this.#meta.realFilename+")"):"")
     ]
     for(let item of this.#callstack){
       stack.push("  -> in '"+item.func+"' [line "+item.calledFrom+"]")
@@ -288,6 +294,10 @@ class ISLInterpreter{
       this.#waits --
       return true
     }
+  }
+  /** A copy of the internal list of metatags for the current ISL file.*/
+  get metatags(){
+    return this.#meta.tags.slice(0)
   }
   get [Symbol.toStringTag]() {
     return 'ISLInterpreter';
@@ -339,10 +349,18 @@ class ISLInterpreter{
     this.#isl = array
     this.#loaded = true
     this.#counter = 0
-    if (source) {this.#filename = source; this.#realFilename = ""}
+    if (source) {this.#meta.filename = source; this.#meta.realFilename = ""}
     if(this.#debug){
       this.#log("ISL loaded")
     }
+  }
+  /** Resets interpreter's stored ISL metadata. */
+  resetMeta(){
+    this.#meta.ignored.splice(0)
+    this.#meta.required.splice(0)
+    this.#meta.tags.splice(0)
+    this.#meta.filename = "<direct execution>"
+    this.#meta.realFilename = ""
   }
   #executeISL() {
     if(!this.#isWaiting && !this.#stopped){
@@ -563,7 +581,7 @@ class ISLInterpreter{
     }
     let addComponent = (content = "", type = currentType, setType = false) => {
       if(!isComponent(content)){
-        this.#log("'"+content+"' is not a valid component, skipping")
+        if(this.#debug) this.#log("'"+content+"' is not a valid component, skipping")
         return;
       } //Remove bad components
       if(this.#debug){
@@ -680,7 +698,6 @@ class ISLInterpreter{
           let newGrp = pushContext
           pushContext = components
           addComponent(newGrp, "group", true) //Push everything as a component
-          console.log(components.at(-1))
           if(this.#debug){
             this.#log("] End of group: "+newGrp)
           }
@@ -703,15 +720,16 @@ class ISLInterpreter{
   #parseMeta(metaTag){
     let meta = metaTag.substring(1, metaTag.length-1)
     let parts = meta.split(" ")
-    let [tag, value] = [parts[0], parts.slice(1).join(" ")]
+    let [tag, value] = [parts[0], parts.slice(1)?.join(" ")]
     if(tag === "require"){
       if(!this.#hasExtensionWithId(value)){
         throw new ISLError("Required extension '"+value+"' is not present", EnvironmentError)
       }
+      this.#meta.required.push(value)
     }
     if(tag === "ignore"){
-      if(!this.#ignored.includes(value)){
-        this.#ignored.push(...value.split(" "))
+      if(!this.#meta.ignored.includes(value)){
+        this.#meta.ignored.push(...value.split(" "))
       }
     }
     if(tag === "environment" || tag === "env"){
@@ -721,12 +739,30 @@ class ISLInterpreter{
     }
     if(tag === "display"){
       if(typeof value === "string" && value.length > 0){
-        this.#realFilename = this.#filename
-        this.#filename = value
+        this.#meta.realFilename = this.#meta.filename
+        this.#meta.filename = value
       }
       else{
         throw new ISLError("Display name must be a non-empty string", SyntaxError)
       }
+    }
+    if(tag === "ipt"){
+      let casted = ISLInterpreter.#restoreOriginalType({value:value,type:"identifier"})
+      if(casted.type === "number"){
+        casted.value = Math.round(casted.value)
+        if(this.#instructionsAtOnce !== casted.value) this.#warnOnce("ipt."+((this.#instructionsAtOnce<casted.value)?"toolow":"toohigh"), "Interpreter is running "+((this.#instructionsAtOnce<casted.value)?"too slow":"too fast")+": "+this.#instructionsAtOnce+" IPT. Recommended speed for this file is "+casted.value+" IPT.")
+      }
+    }
+    if(tag === "strict"){
+      this.#meta.strictMode = true
+      if(value === "off"){
+        this.#meta.strictMode = false
+      }
+    }
+    //Save tag for extension use
+    this.#meta.tags.push({tag: tag, value: value, get isl(){return `[${tag} ${value}]`}})
+    if(this.#debug){
+      this.#log("Meta tag '"+metaTag+"' -> tag='"+tag+"', value='"+value+"'")
     }
   }
   /**
@@ -920,7 +956,7 @@ class ISLInterpreter{
     this.#listeningForKeyPress = false
     this.#waits = 0
     //Reset meta
-    this.#ignored = []
+    this.#meta.ignored = []
     if(this.#debug){
       this.#log("Interpreter reset.")
     }
@@ -930,9 +966,9 @@ class ISLInterpreter{
    */
   clear(){
     this.#fullReset()
-    this.#filename = "<direct execution>"
+    this.#meta.filename = "<direct execution>"
     this.#isl.splice(0)
-    this.#realFilename = ""
+    this.#meta.realFilename = ""
     this.#loaded = false
   }
   /**
@@ -970,6 +1006,10 @@ class ISLInterpreter{
     }
   }
   #warn(...msg){
+    if(this.#meta.strictMode){
+      throw new ISLError(msg.join(" "), EscalatedError)
+      return;
+    }
     if(!this.#silenced){
       this.#onwarn(...msg)
     }
@@ -1075,7 +1115,7 @@ class ISLInterpreter{
       this.#log("Existing functions:",this.#functions)
       this.#log("Keyword or label being inspected:",keyword)
     }
-    if(this.#ignored.includes(keyword)){
+    if(this.#meta.ignored.includes(keyword)){
       if(this.#debug){
         this.#log(keyword, "was ignored")
       }
@@ -1788,7 +1828,10 @@ function clamp(number, min, max) {
   return Math.min(Math.max(number, min), max);
 }
 
+//An error in the execution environment
 class EnvironmentError extends Error{}
+//A warning that was escalated by strict mode
+class EscalatedError extends Error{}
 
 /**
  * ISL Error type, use this if you want your error to show up as an error in the ISL code instead of an internal one.
