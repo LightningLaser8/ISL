@@ -1382,6 +1382,7 @@ class ISLInterpreter {
   #executeStatement(statementArray) {
     let parts = statementArray;
     let keyword = parts[0].value;
+    this.#currentLabels.splice(0)
 
     if (this.#debug) {
       this.#log("Part objects:", parts);
