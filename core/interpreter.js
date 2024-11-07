@@ -1062,6 +1062,16 @@ class ISLInterpreter {
     let path = pathString.split(".");
     let source = startPoint;
     let obj = null;
+    let getPathPoint = (index) => {
+      if(path[index][0] === ":"){
+        let newLoc = path.slice(index).join(".").substring(1)
+        if(this.#debug){
+          this.#log("Deferred getter to: "+newLoc)
+        }
+        return this.#getVariableInContext(newLoc, startPoint).value
+      }
+      return path[index]
+    }
     if (this.#debug) {
       this.#log("Finding variable from path: '" + pathString + "' -> ", path);
     }
@@ -1077,14 +1087,14 @@ class ISLInterpreter {
           this.#parameters,
         ].includes(source)
       ) {
-        source = source[path[index]];
+        source = source[getPathPoint(index)];
       } else {
         if (!source?.value)
           throw new ISLError(
-            "Property '" + path[index - 1] + "' has no value!",
+            "Property '" + getPathPoint(index - 1) + "' on '"+path.slice(0, index - 1).join(".")+"' has no value!",
             ReferenceError
           );
-        source = source.value[path[index]];
+        source = source.value[getPathPoint(index)];
       }
       if (this.#debug) {
         this.#log("New source is", source);
@@ -1095,15 +1105,15 @@ class ISLInterpreter {
             type[0].toUpperCase() +
               type.substring(1).split("-").join(" ") +
               " '" +
-              path[index] +
+              getPathPoint(index) +
               "' does not exist",
             ReferenceError
           );
         throw new ISLError(
           "Property '" +
-            path[index] +
+            getPathPoint(index) +
             "' does not exist on '" +
-            path[index - 1] +
+            path.slice(0, index).join(".") +
             "'",
           ReferenceError
         );
@@ -1680,6 +1690,10 @@ class ISLInterpreter {
   //Variable Manipulation: Binary operators
   #isl_add(variable, value) {
     const varToModify = this.#getVarObj(variable);
+    if(varToModify.type === "group"){
+      varToModify.value.push(value);
+      return;
+    }
     if (varToModify.type !== "number" && varToModify.type !== "string") {
       throw new ISLError(
         "Cannot add to a variable with type '" + varToModify.type + "'",
