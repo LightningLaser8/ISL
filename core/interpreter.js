@@ -20,7 +20,7 @@ Has a custom error handler to give better information about ISL errors and their
 class ISLInterpreter {
   //Basically, this describes types and when they are valid
   #literals = {
-    comparator: (value) => ["=", "!=", "<", ">", "in"].includes(value),
+    comparator: (value) => ["=", "!=", "<", ">", "in", "!in"].includes(value),
     keyword: (value) =>
       value in this.#defaultKeywords || value in this.#customKeywords,
   };
@@ -1301,11 +1301,11 @@ class ISLInterpreter {
       this.#listeningForKeyPress = false;
     }
   }
-  #compare(val1, operator, val2) {
+  #compare(val1, comparator, val2) {
     if (this.#debug) {
-      this.#log(val1 + " " + operator + " " + val2);
+      this.#log(val1 + " " + comparator + " " + val2);
     }
-    switch (operator) {
+    switch (comparator) {
       case "=":
         return val1 === val2;
       case "<":
@@ -1323,10 +1323,19 @@ class ISLInterpreter {
           return val2.includes(val1);
         }
         return new RegExp(val1, "g").test(val2);
+      case "!in":
+          if (val2 instanceof ISLGroup) {
+            if (this.#debug) {
+              this.#log("Value 2 is a group");
+              this.#log(val2, "contains", val1);
+            }
+            return !val2.includes(val1);
+          }
+          return !(new RegExp(val1, "g").test(val2));
 
       default:
         throw new ISLError(
-          "Operator '" + operator + "' is not recognised.",
+          "Comparator '" + comparator + "' is not recognised.",
           SyntaxError
         );
     }
