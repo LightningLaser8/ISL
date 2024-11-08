@@ -172,6 +172,7 @@ class ISLInterpreter {
    * @param {Boolean} options.bufferedGraphics Whether or not to add graphics to a buffer array, then draw them all at once with the `draw` keyword. When disabled, graphics may flicker slightly. Default true.
    * @param {Boolean} options.disallowIndependentGraphics Whether or not to disallow canvas operations. Default false.
    * @param {Boolean} options.haltOnDisallowedOperation Whether or not to stop execution when a disallowed instruction is executed. Default false.
+   * @param {Object} options.communicationEnvironment The object accessed by `import` and `export`. If omitted, a blank object will be created.
    *
    * @param {(error: string, defaultHandler: (error: string) => {}) => {}} options.onerror Callback for any errors from ISL code. Can invoke the default error handler through the second parameter. The error is given as a STRING holding the message, not the error object.
    * @param {(warning: string[]) => {}} options.onwarn Callback for any warnings.
@@ -195,6 +196,7 @@ class ISLInterpreter {
     this.haltOnDisallowedOperation =
       options?.haltOnDisallowedOperation ?? false;
     this.allowExport = this.allowImport = this.#allowCommunicationDefault;
+    this.communication = options?.communicationEnvironment ?? Object.create(null)
 
     addEventListener("keydown", (event) => {
       this.#handleKey.apply(this, [
@@ -1341,38 +1343,10 @@ class ISLInterpreter {
     }
   }
   #getVariableFromFullPath(path) {
-    return this.#getVarValueFromString(globalThis, path);
+    return this.#getVarValueFromString(this.communication, path);
   }
-  #setVariableFromFullPath(path, value) {
-    let xedPath = path
-      .trim()
-      .replace(";", " ")
-      .replace("}", " ")
-      .replace("{", " ")
-      .replace("]", " ")
-      .replace("[", " ")
-      .replace(")", " ")
-      .replace("(", " ")
-      .replace("=", " ");
-    let xedVal =
-      typeof value === "string"
-        ? value
-            .trim()
-            .replace(";", " ")
-            .replace("}", " ")
-            .replace("{", " ")
-            .replace("]", " ")
-            .replace("[", " ")
-            .replace(")", " ")
-            .replace("(", " ")
-            .replace("=", " ")
-        : value;
-    let val =
-      typeof ISLInterpreter.#restoreOriginalType(xedVal) !== "string"
-        ? xedVal
-        : '"' + xedVal + '"';
-    let f = new Function(xedPath + "=" + val);
-    f(); //fix possible security vulnerability
+  #setVariableFromFullPath(path, value, create = false) {
+    this.#setVarValueFromString(this.communication, path, value, create)
   }
   #getVarValueFromString(obj, path) {
     let currentObject = obj;
@@ -1380,8 +1354,31 @@ class ISLInterpreter {
     let depth = parts.length;
     for (let i = 0; i < depth; i++) {
       currentObject = currentObject[parts[i]];
+      if(currentObject == null){
+        throw new ISLError("External variable '"+path+"' does not exist!",ReferenceError)
+      }
     }
     return currentObject;
+  }
+  #setVarValueFromString(obj, path, value, create) {
+    let currentObject = obj;
+    let parts = path.split(".");
+    let depth = parts.length;
+    for (let i = 0; i < depth; i++) {
+      if(currentObject[parts[i]] == null){
+        if(i === depth - 1 && create){
+          currentObject[parts[i]] = value
+        }
+        else{
+          throw new ISLError("External variable '"+path+"' does not exist!",ReferenceError)
+        }
+      }
+      if(i === depth - 1){
+        currentObject[parts[i]] = value
+        return;
+      }
+      currentObject = currentObject[parts[i]];
+    }
   }
 
   /**
@@ -1883,35 +1880,36 @@ class ISLInterpreter {
     }
   }
   //Program Interface
-  #isl_export(local, external) {
+  #isl_export(local, mode, external) {
     if (this.allowExport) {
-      if (this.#doesVarExist(local)) {
-        this.#setVariableFromFullPath(external, this.getVar(local));
-      } else {
-        throw new ISLError(
-          "Variable '" + local + "' does not exist!",
-          ReferenceError
-        );
+      if(mode === "to"){
+        this.#setVariableFromFullPath(external, this.#getVariableInContext(local).value);
+      }
+      if(mode === "as"){
+        this.#setVariableFromFullPath(external, this.#getVariableInContext(local).value, true);
       }
     } else {
       this.#handleDisallowedOperation("Export to " + external + ".");
     }
   }
-  #isl_import(external, local) {
+  #isl_import(external, mode, local) {
     if (this.allowImport) {
-      if (this.#doesVarExist(local)) {
+      if(mode === "to"){
+        if (this.#doesVarExist(local)) {
+          const newValue = this.#getVariableFromFullPath(external);
+          this.#isl_set(local, newValue);
+        }
+      }
+      if(mode === "as"){
+        this.#isl_declare("var", local)
         const newValue = this.#getVariableFromFullPath(external);
-        this.#isl_set(local, newValue);
-      } else {
-        throw new ISLError(
-          "Variable '" + local + "' does not exist!",
-          ReferenceError
-        );
+        this.#getVariableInContext(local, this.#localVariables).value = newValue
       }
     } else {
       this.#handleDisallowedOperation("Import of " + external + ".");
     }
   }
+  #isl_iterate(group, txt_as, element, txt_do, code){}
 
   #validateDescriptor(keyword, input, descriptor) {
     if (this.#debug)
@@ -1926,6 +1924,12 @@ class ISLInterpreter {
       name: "<unnamed argument>",
       optional: false,
     };
+    let isLiterallyType = (descriptor, input) => {
+      return (
+        descriptor.type.substring(1).split("|").includes(input ? input.value : "undefined") ||
+      (input == undefined && descriptor.optional)
+    )
+    }
     let isCorrectType = (descriptor, input) => {
       return (
         descriptor.type.split("|").includes(input ? input.type : "undefined") ||
@@ -1954,15 +1958,15 @@ class ISLInterpreter {
       );
     }
     if (
-      !isCorrectType(actualDescriptor, input) &&
+      !(actualDescriptor.type[0] === "=" ? isLiterallyType(actualDescriptor, input) : isCorrectType(actualDescriptor, input)) &&
       actualDescriptor.type !== "any"
     ) {
       throw new ISLError(
         "'" +
           keyword +
-          "' expects type '" +
+          "' expects "+(actualDescriptor.type[0] === "=" ? ("exact text: '"+actualDescriptor.type.substring(1).split("|").join("' or '")+"'") : ("type '" +
           actualDescriptor.type +
-          "'" +
+          "'"))+
           (actualDescriptor.optional ? " or nothing" : "") +
           " for input '" +
           actualDescriptor.name +
@@ -2227,29 +2231,32 @@ class ISLInterpreter {
     },
     "popup-input": {
       callback: (labels, ...inputs) => {
-        this.#isl_popup_input(inputs[0].value, inputs[1].value);
+        this.#isl_popup_input(inputs[1].value, inputs[2].value);
       },
       descriptors: [
+        { type: "=as", name: "as" },
         { type: "identifier", name: "target" },
         { type: "any", name: "message" },
       ],
     },
     awaitkey: {
       callback: (labels, ...inputs) => {
-        this.#isl_awaitkey(inputs[0].value, inputs[1].value);
+        this.#isl_awaitkey(inputs[1].value, inputs[2].value);
       },
       descriptors: [
+        { type: "=as", name: "as" },
         { type: "identifier", name: "target" },
-        { type: "keyword", name: "manipulator" },
+        { type: "=add|set", name: "manipulator", optional: true },
       ],
     },
     getkeys: {
       callback: (labels, ...inputs) => {
-        this.#isl_getkeys(inputs[0].value, inputs[1].value);
+        this.#isl_getkeys(inputs[1].value, inputs[2]?.value);
       },
       descriptors: [
+        { type: "=as", name: "as" },
         { type: "identifier", name: "target" },
-        { type: "keyword", name: "manipulator" },
+        { type: "=add|set", name: "manipulator", optional: true },
       ],
     },
     restart: {
@@ -2306,19 +2313,21 @@ class ISLInterpreter {
     },
     export: {
       callback: (labels, ...inputs) => {
-        this.#isl_export(inputs[0].value, inputs[1].value);
+        this.#isl_export(inputs[0].value, inputs[1].value, inputs[2].value);
       },
       descriptors: [
         { type: "identifier", name: "local" },
+        { type: "=as|to", name: "mode" },
         { type: "string", name: "external" },
       ],
     },
     import: {
       callback: (labels, ...inputs) => {
-        this.#isl_import(inputs[0].value, inputs[1].value);
+        this.#isl_import(inputs[0].value, inputs[1].value, inputs[2].value);
       },
       descriptors: [
         { type: "string", name: "external" },
+        { type: "=as|to", name: "mode" },
         { type: "identifier", name: "local" },
       ],
     },
