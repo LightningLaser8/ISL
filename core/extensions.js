@@ -43,6 +43,9 @@ class ISLExtension {
   get id() {
     return this.#identifier;
   }
+  get [Symbol.toStringTag]() {
+    return "ISLExtension"
+  }
 
   /**
    * Adds a custom keyword to this extension.
