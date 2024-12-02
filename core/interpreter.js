@@ -126,6 +126,9 @@ class ISLInterpreter {
   #ifResult = false;
   #canElse = false;
 
+  #iterator = null;
+  #iterating = false;
+
   //Options
   options;
   #showExecutionTime;
@@ -1660,6 +1663,29 @@ class ISLInterpreter {
       this.#functions[name].indexEnd = this.#counter;
 
       if (this.#functions[name].ended) {
+        //check for iterator
+        if(this.#iterating){
+          if(this.#iterator.func === name){
+            this.#iterator.index ++
+            if(this.#iterator.index < this.#iterator.group.length){
+              this.#counter = this.#functions[name].indexStart;
+              let toMod = this.#parameters[this.#functions[name]?.params[0]?.name]
+              if(!toMod){
+                throw new ISLError("Iterating functions must have at least one parameter!",SyntaxError)
+              }
+              let item = this.#iterator.group[this.#iterator.index]
+              toMod.value = item.value
+              if(!toMod.type === item.type){
+                throw new ISLError("Cannot use a parameter with type '"+toMod.type+"' to iterate a group containing type '"+item.type+"'",TypeError)
+              }
+              if(this.#debug) this.#log("Did not move, iterating...");
+              return;
+            }
+            else{
+              if(this.#debug) this.#log("Iteration finished.");
+            }
+          }
+        }
         //return up the callstack
         let previous = this.#callstack.pop(); //callstack has {calledFrom: number, func: String, params: Array<String>}
         let continuing = this.#callstack[0] ?? {
@@ -1959,7 +1985,16 @@ class ISLInterpreter {
       this.#handleDisallowedOperation("Import of " + external + ".");
     }
   }
-  #isl_iterate(group, txt_as, element, txt_do, code){}
+  #isl_iterate(group, func){
+    if(!this.#iterating){
+      this.#iterating = true
+      this.#iterator = {func: func, group: group, index: 0}
+      this.#isl_execute(func, group[0])
+    }
+    else{
+      throw new ISLError("Already iterating group "+this.#iterator.group,SyntaxError)
+    }
+  }
 
   #validateDescriptor(keyword, input, descriptor) {
     if (this.#debug)
@@ -2404,6 +2439,16 @@ class ISLInterpreter {
         this.#goToLine(inputs[0]);
       },
       descriptors: [{ type: "number|relpos", name: "line" }],
+    },
+    iterate: {
+      callback: (labels, ...inputs) => {
+        this.#isl_iterate(inputs[0].value, inputs[2].value)
+      },
+      descriptors: [
+        { type: "group", name: "target" },
+        { type: "=with", name: "separator"},
+        { type: "identifier", name: "function"}
+      ]
     },
     export: {
       callback: (labels, ...inputs) => {
