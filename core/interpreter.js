@@ -2108,6 +2108,18 @@ class ISLInterpreter {
       },
       descriptors: [{ type: "identifier", name: "name" }],
     },
+    bool: {
+      callback: (labels, ...inputs) => {
+        this.#isl_declare("var", inputs[0].value, false, "boolean");
+      },
+      descriptors: [{ type: "identifier", name: "name" }],
+    },
+    group: {
+      callback: (labels, ...inputs) => {
+        this.#isl_declare("var", inputs[0].value, new ISLGroup(), "group");
+      },
+      descriptors: [{ type: "identifier", name: "name" }],
+    },
     function: {
       callback: (labels, ...inputs) => {
         this.#isl_declare(
@@ -2367,7 +2379,7 @@ class ISLGroup extends Array {
     let grp = new this();
     let arr = string.split("|");
     for (let i = 0; i < arr.length; i++) {
-      grp[i] = arr[i];
+      grp[i] = {type: "string", value: arr[i]};
     }
     return grp;
   }
