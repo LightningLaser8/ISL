@@ -2241,7 +2241,7 @@ class ISLInterpreter {
     },
     awaitkey: {
       callback: (labels, ...inputs) => {
-        this.#isl_awaitkey(inputs[1].value, inputs[2].value);
+        this.#isl_awaitkey(inputs[1].value, inputs[2]?.value);
       },
       descriptors: [
         { type: "=as", name: "as" },
@@ -2274,7 +2274,7 @@ class ISLInterpreter {
       callback: (labels, ...inputs) => {
         this.executeSpeed = inputs[0].value;
       },
-      descriptors: [{ type: "number", name: "speed" }],
+      descriptors: [{ type: "number", name: "delay" }],
     },
     stop: {
       callback: (labels, ...inputs) => {
@@ -2287,7 +2287,7 @@ class ISLInterpreter {
       callback: (labels, ...inputs) => {
         this.#waits += inputs[0].value;
       },
-      descriptors: [{ type: "number", name: "delay" }],
+      descriptors: [{ type: "number", name: "time" }],
     },
     if: {
       callback: (labels, ...inputs) => {
