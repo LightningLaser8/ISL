@@ -119,8 +119,12 @@ class ISLInterpreter {
   #currentLabels = [];
 
   //Flow control
+  static #doesntAffectIf = ["if", "|"]
   #waits = 0;
   #skipping = false;
+  #lastExecuted = ""
+  #ifResult = false;
+  #canElse = false;
 
   //Options
   options;
@@ -1183,6 +1187,8 @@ class ISLInterpreter {
    * Resets the interpreter to the start. Removes all local variables.
    */
   #hardReset() {
+    this.#ifResult = false;
+    this.#canElse = false;
     this.#counter = 0;
     this.#localVariables = {};
     this.#functions = {};
@@ -1385,7 +1391,7 @@ class ISLInterpreter {
    * Executes an ISL statement from an array of parts.
    * @param {Array<{value: *, type: string}>} statementArray
    */
-  #executeStatement(statementArray) {
+  #executeStatement(statementArray, affectsIfs = true, affectsLastExecuted = true) {
     let parts = statementArray;
     let keyword = parts[0].value;
     this.#currentLabels.splice(0)
@@ -1516,12 +1522,24 @@ class ISLInterpreter {
 
       //Error if invalid
       else {
+        if(keyword.toString().match(/^\[.*]$/)){
+          throw new ISLError(
+            "Metatag '" + keyword + "' must be top-level",
+            SyntaxError
+          );
+        }
         throw new ISLError(
-          "Keyword or label '" + parts[0].value + "' not recognised",
+          "Keyword or label '" + keyword + "' not recognised",
           SyntaxError
         );
       }
 
+      //Update flow control
+      if(affectsLastExecuted && keyword !== "|") this.#lastExecuted = keyword;
+      //If logic
+      if(affectsIfs && !ISLInterpreter.#doesntAffectIf.includes(keyword)){
+        this.#canElse = false;
+      }
       //Clear labels
       this.#currentLabels.splice(0);
     }
@@ -1835,22 +1853,29 @@ class ISLInterpreter {
   #isl_getkeys(variable, type = "set") {
     let keys = Object.getOwnPropertyNames(this.#pressed);
     let output = "";
+    const varToModify = this.#getVarObj(variable);
     if (this.#currentLabels.includes("grouped")) {
-      output = "[" + keys.join("|") + "]";
+      output = ISLGroup.from("[" + keys.join("|") + "]");
+      if (varToModify.type !== "group") {
+        throw new ISLError(
+          "Variable with type '" +
+            varToModify.type +
+            "' cannot be set to value with type 'group'",
+          TypeError
+        );
+      }
     } else {
       output = keys.join(",");
+      if (varToModify.type !== "string") {
+        throw new ISLError(
+          "Variable with type '" +
+            varToModify.type +
+            "' cannot be set to value with type 'string'",
+          TypeError
+        );
+      }
     }
-    const varToModify = this.#getVarObj(variable);
-    if (varToModify.type != "string") {
-      throw new ISLError(
-        "Variable with type '" +
-          varToModify.type +
-          "' cannot be set to value with type 'string'",
-        TypeError
-      );
-    } else {
-      varToModify.type = "string";
-    }
+    
 
     if (type === "add") {
       varToModify.value += output;
@@ -1867,16 +1892,41 @@ class ISLInterpreter {
   }
   //Flow Control
   #isl_if(val1, operator, val2, ...code) {
+    this.#canElse = true;
     if (this.#compare(val1, operator, val2)) {
+      this.#ifResult = true;
       if (this.#debug)
         this.#log(
           "condition met, executing '" +
             code.map((x) => x.value).join(" ") +
             "'"
         );
-      this.#executeStatement(code);
+      this.#executeStatement(code, false);
     } else {
+      this.#ifResult = false;
       if (this.#debug) this.#log("condition not met");
+    }
+  }
+  #isl_else(...code) {
+    if(this.#canElse){
+      if(!this.#ifResult) this.#executeStatement(code);
+    }
+    else{
+      throw new ISLError("An 'else' statement must be directly after an 'if' statement.", SyntaxError)
+    }
+    this.#canElse = false;
+  }
+  //Misc
+  #isl_block_continuation(...code) { //The '|' "keyword"
+    switch (this.#lastExecuted){
+      case "if":
+        if(this.#ifResult) this.#executeStatement(code, false, false);
+        break;
+      case "else":
+        if(!this.#ifResult) this.#executeStatement(code, false, false);
+        break;
+      default:
+        throw new ISLError("Block continuation ('| ...') is not applicable to '"+this.#lastExecuted+"'", SyntaxError)
     }
   }
   //Program Interface
@@ -2314,6 +2364,38 @@ class ISLInterpreter {
         { type: "any", name: "value 1" },
         { type: "comparator", name: "comparator" },
         { type: "any", name: "value 2" },
+        { type: "any", name: "code", recurring: true },
+      ],
+    },
+    if: {
+      callback: (labels, ...inputs) => {
+        this.#isl_if(
+          inputs[0].value,
+          inputs[1].value,
+          inputs[2].value,
+          ...inputs.slice(3)
+        );
+      },
+      descriptors: [
+        { type: "any", name: "value 1" },
+        { type: "comparator", name: "comparator" },
+        { type: "any", name: "value 2" },
+        { type: "any", name: "code", recurring: true },
+      ],
+    },
+    else: {
+      callback: (labels, ...inputs) => {
+        this.#isl_else(...inputs);
+      },
+      descriptors: [
+        { type: "any", name: "code", recurring: true },
+      ],
+    },
+    "|":{
+      callback: (labels, ...inputs) => {
+        this.#isl_block_continuation(...inputs);
+      },
+      descriptors: [
         { type: "any", name: "code", recurring: true },
       ],
     },
