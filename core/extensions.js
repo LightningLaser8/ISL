@@ -44,7 +44,7 @@ class ISLExtension {
     return this.#identifier;
   }
   get [Symbol.toStringTag]() {
-    return "ISLExtension"
+    return "ISLExtension";
   }
 
   /**

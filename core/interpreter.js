@@ -32,7 +32,14 @@ class ISLInterpreter {
       display: "'webprompt'",
     },
     declare: {
-      replacements: ["'string'", "'function'", "'number'", "'var'", "'group'", "'object'"],
+      replacements: [
+        "'string'",
+        "'function'",
+        "'number'",
+        "'var'",
+        "'group'",
+        "'object'",
+      ],
       type: "split",
       display: "'declare var/cmd'",
     },
@@ -126,10 +133,10 @@ class ISLInterpreter {
   #currentLabels = [];
 
   //Flow control
-  static #doesntAffectIf = ["if", "|"]
+  static #doesntAffectIf = ["if", "|"];
   #waits = 0;
   #skipping = false;
-  #lastExecuted = ""
+  #lastExecuted = "";
   #ifResult = false;
   #canElse = false;
 
@@ -210,7 +217,8 @@ class ISLInterpreter {
     this.haltOnDisallowedOperation =
       options?.haltOnDisallowedOperation ?? false;
     this.allowExport = this.allowImport = this.#allowCommunicationDefault;
-    this.communication = options?.communicationEnvironment ?? Object.create(null)
+    this.communication =
+      options?.communicationEnvironment ?? Object.create(null);
 
     addEventListener("keydown", (event) => {
       this.#handleKey.apply(this, [
@@ -1066,15 +1074,15 @@ class ISLInterpreter {
     let source = startPoint;
     let obj = null;
     let getPathPoint = (index) => {
-      if(path[index][0] === ":"){
-        let newLoc = path.slice(index).join(".").substring(1)
-        if(this.#debug){
-          this.#log("Deferred getter to: "+newLoc)
+      if (path[index][0] === ":") {
+        let newLoc = path.slice(index).join(".").substring(1);
+        if (this.#debug) {
+          this.#log("Deferred getter to: " + newLoc);
         }
-        return this.#getVariableInContext(newLoc, startPoint).value
+        return this.#getVariableInContext(newLoc, startPoint).value;
       }
-      return path[index]
-    }
+      return path[index];
+    };
     if (this.#debug) {
       this.#log("Finding variable from path: '" + pathString + "' -> ", path);
     }
@@ -1094,18 +1102,20 @@ class ISLInterpreter {
       } else {
         if (!source?.value?.properties)
           throw new ISLError(
-            "'"+path.slice(0, index).join(".")+"' has no properties!",
+            "'" + path.slice(0, index).join(".") + "' has no properties!",
             ReferenceError
           );
         let inNum = parseInt(getPathPoint(index));
-        if(!isNaN(inNum)){
-          if(!source.value.indexer) throw new ISLError("'"+path.slice(0, index).join(".")+"' has no indexer.", SyntaxError)
+        if (!isNaN(inNum)) {
+          if (!source.value.indexer)
+            throw new ISLError(
+              "'" + path.slice(0, index).join(".") + "' has no indexer.",
+              SyntaxError
+            );
           source = source.value.indexer(inNum);
-        }
-        else if (source.value instanceof ISLObject){
+        } else if (source.value instanceof ISLObject) {
           source = source.value.getProp(getPathPoint(index));
-        }
-        else source = source.value.properties[getPathPoint(index)];
+        } else source = source.value.properties[getPathPoint(index)];
       }
       if (this.#debug) {
         this.#log("New source is", source);
@@ -1337,14 +1347,14 @@ class ISLInterpreter {
         }
         return new RegExp(val1, "g").test(val2);
       case "!in":
-          if (val2 instanceof ISLGroup) {
-            if (this.#debug) {
-              this.#log("Value 2 is a group");
-              this.#log(val2, "contains", val1);
-            }
-            return !val2.includes(val1);
+        if (val2 instanceof ISLGroup) {
+          if (this.#debug) {
+            this.#log("Value 2 is a group");
+            this.#log(val2, "contains", val1);
           }
-          return !(new RegExp(val1, "g").test(val2));
+          return !val2.includes(val1);
+        }
+        return !new RegExp(val1, "g").test(val2);
 
       default:
         throw new ISLError(
@@ -1357,7 +1367,7 @@ class ISLInterpreter {
     return this.#getVarValueFromString(this.communication, path);
   }
   #setVariableFromFullPath(path, value, create = false) {
-    this.#setVarValueFromString(this.communication, path, value, create)
+    this.#setVarValueFromString(this.communication, path, value, create);
   }
   #getVarValueFromString(obj, path) {
     let currentObject = obj;
@@ -1365,8 +1375,11 @@ class ISLInterpreter {
     let depth = parts.length;
     for (let i = 0; i < depth; i++) {
       currentObject = currentObject[parts[i]];
-      if(currentObject == null){
-        throw new ISLError("External variable '"+path+"' does not exist!",ReferenceError)
+      if (currentObject == null) {
+        throw new ISLError(
+          "External variable '" + path + "' does not exist!",
+          ReferenceError
+        );
       }
     }
     return currentObject;
@@ -1376,16 +1389,18 @@ class ISLInterpreter {
     let parts = path.split(".");
     let depth = parts.length;
     for (let i = 0; i < depth; i++) {
-      if(currentObject[parts[i]] == null){
-        if(i === depth - 1 && create){
-          currentObject[parts[i]] = value
-        }
-        else{
-          throw new ISLError("External variable '"+path+"' does not exist!",ReferenceError)
+      if (currentObject[parts[i]] == null) {
+        if (i === depth - 1 && create) {
+          currentObject[parts[i]] = value;
+        } else {
+          throw new ISLError(
+            "External variable '" + path + "' does not exist!",
+            ReferenceError
+          );
         }
       }
-      if(i === depth - 1){
-        currentObject[parts[i]] = value
+      if (i === depth - 1) {
+        currentObject[parts[i]] = value;
         return;
       }
       currentObject = currentObject[parts[i]];
@@ -1396,10 +1411,14 @@ class ISLInterpreter {
    * Executes an ISL statement from an array of parts.
    * @param {Array<{value: *, type: string}>} statementArray
    */
-  #executeStatement(statementArray, affectsIfs = true, affectsLastExecuted = true) {
+  #executeStatement(
+    statementArray,
+    affectsIfs = true,
+    affectsLastExecuted = true
+  ) {
     let parts = statementArray;
     let keyword = parts[0].value;
-    this.#currentLabels.splice(0)
+    this.#currentLabels.splice(0);
 
     if (this.#debug) {
       this.#log("Part objects:", parts);
@@ -1527,7 +1546,7 @@ class ISLInterpreter {
 
       //Error if invalid
       else {
-        if(keyword.toString().match(/^\[.*]$/)){
+        if (keyword.toString().match(/^\[.*]$/)) {
           throw new ISLError(
             "Metatag '" + keyword + "' must be top-level",
             SyntaxError
@@ -1540,9 +1559,10 @@ class ISLInterpreter {
       }
 
       //Update flow control
-      if(affectsLastExecuted && keyword !== "|" && keyword !== "#") this.#lastExecuted = keyword;
+      if (affectsLastExecuted && keyword !== "|" && keyword !== "#")
+        this.#lastExecuted = keyword;
       //If logic
-      if(affectsIfs && !ISLInterpreter.#doesntAffectIf.includes(keyword)){
+      if (affectsIfs && !ISLInterpreter.#doesntAffectIf.includes(keyword)) {
         this.#canElse = false;
       }
       //Clear labels
@@ -1666,25 +1686,35 @@ class ISLInterpreter {
 
       if (this.#functions[name].ended) {
         //check for iterator
-        if(this.#iterating){
-          if(this.#iterator.func === name){
-            this.#iterator.index ++
-            if(this.#iterator.index < this.#iterator.group.length){
+        if (this.#iterating) {
+          if (this.#iterator.func === name) {
+            this.#iterator.index++;
+            if (this.#iterator.index < this.#iterator.group.length) {
               this.#counter = this.#functions[name].indexStart;
-              let toMod = this.#parameters[this.#functions[name]?.params[0]?.name]
-              if(!toMod){
-                throw new ISLError("Iterating functions must have at least one parameter!",SyntaxError)
+              let toMod =
+                this.#parameters[this.#functions[name]?.params[0]?.name];
+              if (!toMod) {
+                throw new ISLError(
+                  "Iterating functions must have at least one parameter!",
+                  SyntaxError
+                );
               }
-              let item = this.#iterator.group[this.#iterator.index]
-              toMod.value = item.value
-              if(!toMod.type === item.type){
-                throw new ISLError("Cannot use a parameter with type '"+toMod.type+"' to iterate a group containing type '"+item.type+"'",TypeError)
+              let item = this.#iterator.group[this.#iterator.index];
+              toMod.value = item.value;
+              if (!toMod.type === item.type) {
+                throw new ISLError(
+                  "Cannot use a parameter with type '" +
+                    toMod.type +
+                    "' to iterate a group containing type '" +
+                    item.type +
+                    "'",
+                  TypeError
+                );
               }
-              if(this.#debug) this.#log("Did not move, iterating...");
+              if (this.#debug) this.#log("Did not move, iterating...");
               return;
-            }
-            else{
-              if(this.#debug) this.#log("Iteration finished.");
+            } else {
+              if (this.#debug) this.#log("Iteration finished.");
               this.#iterating = false;
             }
           }
@@ -1744,7 +1774,7 @@ class ISLInterpreter {
   //Variable Manipulation: Binary operators
   #isl_add(variable, value) {
     const varToModify = this.#getVarObj(variable);
-    if(varToModify.type === "group"){
+    if (varToModify.type === "group") {
       varToModify.value.push(value);
       return;
     }
@@ -1831,10 +1861,14 @@ class ISLInterpreter {
     }
     varToModify.value = value.value;
   }
-  #isl_create(name, varName, type){
+  #isl_create(name, varName, type) {
     let v = this.#getVarObj(varName);
-    if(v.type !== "object") throw new ISLError("Variable '"+varName+"' is not an object!", TypeError)
-    v.value.create(name, type)
+    if (v.type !== "object")
+      throw new ISLError(
+        "Variable '" + varName + "' is not an object!",
+        TypeError
+      );
+    v.value.create(name, type);
   }
   //Variable Manipulation: Unary operators
   #isl_round(variable) {
@@ -1908,7 +1942,6 @@ class ISLInterpreter {
         );
       }
     }
-    
 
     if (type === "add") {
       varToModify.value += output;
@@ -1941,61 +1974,134 @@ class ISLInterpreter {
     }
   }
   #isl_else(...code) {
-    if(this.#canElse){
-      if(!this.#ifResult) this.#executeStatement(code);
-    }
-    else{
-      throw new ISLError("An 'else' statement must be directly after an 'if' statement.", SyntaxError)
+    if (this.#canElse) {
+      if (!this.#ifResult) this.#executeStatement(code);
+    } else {
+      throw new ISLError(
+        "An 'else' statement must be directly after an 'if' statement.",
+        SyntaxError
+      );
     }
     this.#canElse = false;
   }
   //Misc
-  #isl_block_continuation(...code) { //The '|' "keyword"
-    switch (this.#lastExecuted){
+  #isl_block_continuation(...code) {
+    //The '|' "keyword"
+    switch (this.#lastExecuted) {
       case "if":
-        if(this.#ifResult) this.#executeStatement(code, false, false);
+        if (this.#ifResult) this.#executeStatement(code, false, false);
         break;
       case "else":
-        if(!this.#ifResult) this.#executeStatement(code, false, false);
+        if (!this.#ifResult) this.#executeStatement(code, false, false);
         break;
       case "class":
-        if(!this.#classCreating) throw new ISLError("No class is under construction!", ReferenceError)
-        if(code[0]?.value == null) throw new ISLError("Property initialiser must have a type", SyntaxError)
-        this.#validateDescriptor("<class body>", code[0], {type: "keyword", name: "type"})
-        if(code[1]?.value == null) throw new ISLError("Property initialiser must have a property name", SyntaxError)
-        this.#validateDescriptor("<class body>", code[1], {type: "identifier", name: "name"})
-        this.#validateDescriptor("<class body>", code[2], {type: "==", name: "separator"})
-        if(code[3]?.value == null) throw new ISLError("Property initialiser must have a default value", SyntaxError)
-        this.#validateDescriptor("<class body>", code[3], {type: "any", name: "value"})
-        if(code[3].type !== code[0].value) throw new ISLError("Default value type does not match property type!", TypeError)
-        if(this.#classCreating.properties[code[1].value]) throw new ISLError("Cannot redefine property '"+code[1].value+"' on class '"+this.#classCreating.name+"'")
-        this.#classCreating.properties[code[1].value] = {type: code[0].value, value: code[3].value}
+        if (!this.#classCreating)
+          throw new ISLError("No class is under construction!", ReferenceError);
+        if (code[0]?.value == null)
+          throw new ISLError(
+            "Property initialiser must have a type",
+            SyntaxError
+          );
+        this.#validateDescriptor("<class body>", code[0], {
+          type: "keyword",
+          name: "type",
+        });
+        if (code[1]?.value == null)
+          throw new ISLError(
+            "Property initialiser must have a property name",
+            SyntaxError
+          );
+        this.#validateDescriptor("<class body>", code[1], {
+          type: "identifier",
+          name: "name",
+        });
+        this.#validateDescriptor("<class body>", code[2], {
+          type: "==",
+          name: "separator",
+        });
+        if (code[3]?.value == null)
+          throw new ISLError(
+            "Property initialiser must have a default value",
+            SyntaxError
+          );
+        this.#validateDescriptor("<class body>", code[3], {
+          type: "any",
+          name: "value",
+        });
+        if (code[3].type !== code[0].value)
+          throw new ISLError(
+            "Default value type does not match property type!",
+            TypeError
+          );
+        if (this.#classCreating.properties[code[1].value])
+          throw new ISLError(
+            "Cannot redefine property '" +
+              code[1].value +
+              "' on class '" +
+              this.#classCreating.name +
+              "'"
+          );
+        this.#classCreating.properties[code[1].value] = {
+          type: code[0].value,
+          value: code[3].value,
+        };
         break;
       default:
-        throw new ISLError("Block continuation ('| ...') is not applicable to '"+this.#lastExecuted+"'", SyntaxError)
+        throw new ISLError(
+          "Block continuation ('| ...') is not applicable to '" +
+            this.#lastExecuted +
+            "'",
+          SyntaxError
+        );
     }
   }
-  #isl_init(property, input){
-    if(this.#lastExecuted !== "object") throw new ISLError("Object property initialisers ('# ...') must directly follow an object declaration.")
-    if(!this.#constructing?.value) throw new ISLError("Nothing is under construction!", ReferenceError);
-    if(!this.#constructing.value.properties) throw new ISLError("Constructed object has no properties!")
-    if(!this.#constructing.value.properties[property]) throw new ISLError("Cannot set value of '"+property+"' as it does not exist.")
-    if(this.#constructing.value.properties[property].type !== input.type) throw new ISLError("Cannot set property with type '"+this.#constructing.value.properties[property].type+"' to value with type '"+input.type+"'")
-    this.#constructing.value.properties[property].value = input.value
+  #isl_init(property, input) {
+    if (this.#lastExecuted !== "object")
+      throw new ISLError(
+        "Object property initialisers ('# ...') must directly follow an object declaration."
+      );
+    if (!this.#constructing?.value)
+      throw new ISLError("Nothing is under construction!", ReferenceError);
+    if (!this.#constructing.value.properties)
+      throw new ISLError("Constructed object has no properties!");
+    if (!this.#constructing.value.properties[property])
+      throw new ISLError(
+        "Cannot set value of '" + property + "' as it does not exist."
+      );
+    if (this.#constructing.value.properties[property].type !== input.type)
+      throw new ISLError(
+        "Cannot set property with type '" +
+          this.#constructing.value.properties[property].type +
+          "' to value with type '" +
+          input.type +
+          "'"
+      );
+    this.#constructing.value.properties[property].value = input.value;
   }
-  #isl_class(name){
-    if(this.#classes[name]) throw new ISLError("Cannot redeclare class '"+name+"'", ReferenceError)
-    this.#classes[name] = new ISLClass(name)
-    this.#classCreating = this.#classes[name]
+  #isl_class(name) {
+    if (this.#classes[name])
+      throw new ISLError(
+        "Cannot redeclare class '" + name + "'",
+        ReferenceError
+      );
+    this.#classes[name] = new ISLClass(name);
+    this.#classCreating = this.#classes[name];
   }
   //Program Interface
   #isl_export(local, mode, external) {
     if (this.allowExport) {
-      if(mode === "to"){
-        this.#setVariableFromFullPath(external, this.#getVariableInContext(local).value);
+      if (mode === "to") {
+        this.#setVariableFromFullPath(
+          external,
+          this.#getVariableInContext(local).value
+        );
       }
-      if(mode === "as"){
-        this.#setVariableFromFullPath(external, this.#getVariableInContext(local).value, true);
+      if (mode === "as") {
+        this.#setVariableFromFullPath(
+          external,
+          this.#getVariableInContext(local).value,
+          true
+        );
       }
     } else {
       this.#handleDisallowedOperation("Export to " + external + ".");
@@ -2003,29 +2109,32 @@ class ISLInterpreter {
   }
   #isl_import(external, mode, local) {
     if (this.allowImport) {
-      if(mode === "to"){
+      if (mode === "to") {
         if (this.#doesVarExist(local)) {
           const newValue = this.#getVariableFromFullPath(external);
           this.#isl_set(local, newValue);
         }
       }
-      if(mode === "as"){
-        this.#isl_declare("var", local)
+      if (mode === "as") {
+        this.#isl_declare("var", local);
         const newValue = this.#getVariableFromFullPath(external);
-        this.#getVariableInContext(local, this.#localVariables).value = newValue
+        this.#getVariableInContext(local, this.#localVariables).value =
+          newValue;
       }
     } else {
       this.#handleDisallowedOperation("Import of " + external + ".");
     }
   }
-  #isl_iterate(group, func){
-    if(!this.#iterating){
-      this.#iterating = true
-      this.#iterator = {func: func, group: group, index: 0}
-      this.#isl_execute(func, group[0])
-    }
-    else{
-      throw new ISLError("Already iterating group "+this.#iterator.group,SyntaxError)
+  #isl_iterate(group, func) {
+    if (!this.#iterating) {
+      this.#iterating = true;
+      this.#iterator = { func: func, group: group, index: 0 };
+      this.#isl_execute(func, group[0]);
+    } else {
+      throw new ISLError(
+        "Already iterating group " + this.#iterator.group,
+        SyntaxError
+      );
     }
   }
 
@@ -2044,10 +2153,13 @@ class ISLInterpreter {
     };
     let isLiterallyType = (descriptor, input) => {
       return (
-        descriptor.type.substring(1).split("|").includes(input ? input.value : "undefined") ||
-      (input == undefined && descriptor.optional)
-    )
-    }
+        descriptor.type
+          .substring(1)
+          .split("|")
+          .includes(input ? input.value : "undefined") ||
+        (input == undefined && descriptor.optional)
+      );
+    };
     let isCorrectType = (descriptor, input) => {
       return (
         descriptor.type.split("|").includes(input ? input.type : "undefined") ||
@@ -2076,15 +2188,20 @@ class ISLInterpreter {
       );
     }
     if (
-      !(actualDescriptor.type[0] === "=" ? isLiterallyType(actualDescriptor, input) : isCorrectType(actualDescriptor, input)) &&
+      !(actualDescriptor.type[0] === "="
+        ? isLiterallyType(actualDescriptor, input)
+        : isCorrectType(actualDescriptor, input)) &&
       actualDescriptor.type !== "any"
     ) {
       throw new ISLError(
         "'" +
           keyword +
-          "' expects "+(actualDescriptor.type[0] === "=" ? ("exact text: '"+actualDescriptor.type.substring(1).split("|").join("' or '")+"'") : ("type '" +
-          actualDescriptor.type +
-          "'"))+
+          "' expects " +
+          (actualDescriptor.type[0] === "="
+            ? "exact text: '" +
+              actualDescriptor.type.substring(1).split("|").join("' or '") +
+              "'"
+            : "type '" + actualDescriptor.type + "'") +
           (actualDescriptor.optional ? " or nothing" : "") +
           " for input '" +
           actualDescriptor.name +
@@ -2241,27 +2358,33 @@ class ISLInterpreter {
     object: {
       callback: (labels, ...inputs) => {
         this.#isl_declare("var", inputs[0].value, new ISLObject(), "object");
-        if(inputs[1] && !inputs[2]) throw new ISLError("Expected type name after 'type' in object declaration", SyntaxError)
+        if (inputs[1] && !inputs[2])
+          throw new ISLError(
+            "Expected type name after 'type' in object declaration",
+            SyntaxError
+          );
         this.#constructing = this.#getVarObj(inputs[0].value);
-        if(inputs[2]) {
-          let classToUse = this.#classes[inputs[2].value]
-          if(!classToUse) throw new ISLError("Class '"+inputs[2].value+"' does not exist!", ReferenceError)
-          classToUse.instantiate(this.#getVarObj(inputs[0].value))
+        if (inputs[2]) {
+          let classToUse = this.#classes[inputs[2].value];
+          if (!classToUse)
+            throw new ISLError(
+              "Class '" + inputs[2].value + "' does not exist!",
+              ReferenceError
+            );
+          classToUse.instantiate(this.#getVarObj(inputs[0].value));
         }
       },
       descriptors: [
         { type: "identifier", name: "name" },
         { type: "=type", name: "separator", optional: true },
-        { type: "identifier", name: "type", optional: true }
+        { type: "identifier", name: "type", optional: true },
       ],
     },
     class: {
       callback: (labels, ...inputs) => {
-        this.#isl_class(inputs[0].value)
+        this.#isl_class(inputs[0].value);
       },
-      descriptors: [
-        { type: "identifier", name: "name" }
-      ],
+      descriptors: [{ type: "identifier", name: "name" }],
     },
     function: {
       callback: (labels, ...inputs) => {
@@ -2311,7 +2434,7 @@ class ISLInterpreter {
         { type: "=on", name: "separator 1" },
         { type: "identifier", name: "variable" },
         { type: "=as", name: "separator 2", optional: true },
-        { type: "keyword", name: "type", optional: true }
+        { type: "keyword", name: "type", optional: true },
       ],
     },
     add: {
@@ -2492,21 +2615,17 @@ class ISLInterpreter {
       callback: (labels, ...inputs) => {
         this.#isl_else(...inputs);
       },
-      descriptors: [
-        { type: "any", name: "code", recurring: true },
-      ],
+      descriptors: [{ type: "any", name: "code", recurring: true }],
     },
-    "|":{
+    "|": {
       callback: (labels, ...inputs) => {
         this.#isl_block_continuation(...inputs);
       },
-      descriptors: [
-        { type: "any", name: "code", recurring: true },
-      ],
+      descriptors: [{ type: "any", name: "code", recurring: true }],
     },
-    "#":{
+    "#": {
       callback: (labels, ...inputs) => {
-        this.#isl_init(inputs[0].value, inputs[2])
+        this.#isl_init(inputs[0].value, inputs[2]);
       },
       descriptors: [
         { type: "identifier", name: "property" },
@@ -2522,13 +2641,13 @@ class ISLInterpreter {
     },
     iterate: {
       callback: (labels, ...inputs) => {
-        this.#isl_iterate(inputs[0].value, inputs[2].value)
+        this.#isl_iterate(inputs[0].value, inputs[2].value);
       },
       descriptors: [
         { type: "group", name: "target" },
-        { type: "=with", name: "separator"},
-        { type: "identifier", name: "function"}
-      ]
+        { type: "=with", name: "separator" },
+        { type: "identifier", name: "function" },
+      ],
     },
     export: {
       callback: (labels, ...inputs) => {
@@ -2586,18 +2705,23 @@ class ISLGroup extends Array {
     let grp = new this();
     let arr = string.split("|");
     for (let i = 0; i < arr.length; i++) {
-      grp[i] = {type: "string", value: arr[i]};
+      grp[i] = { type: "string", value: arr[i] };
     }
     return grp;
   }
   properties = {
     _: this,
-    get length(){return this._.length},
-    get asString(){return this._.toString()}
-  }
-  indexer(index){
-    if(typeof index !== "number") throw new ISLError("Indices must be numbers!", SyntaxError)
-    return this[index]
+    get length() {
+      return this._.length;
+    },
+    get asString() {
+      return this._.toString();
+    },
+  };
+  indexer(index) {
+    if (typeof index !== "number")
+      throw new ISLError("Indices must be numbers!", SyntaxError);
+    return this[index];
   }
   includes(searchElement, fromIndex = 0) {
     return Array.from(this.map((x) => (x ? x.value : undefined))).includes(
@@ -2610,56 +2734,72 @@ class ISLGroup extends Array {
   }
 }
 
-class ISLClass{
-  name = "class"
-  properties = {}
-  constructor(name, properties = {}){
+class ISLClass {
+  name = "class";
+  properties = {};
+  constructor(name, properties = {}) {
     this.name = name;
     this.properties = properties;
   }
-  instantiate(variable){
-    if(!variable?.value?.properties) throw new ISLError("Cannot instantiate onto non-object variable",TypeError)
+  instantiate(variable) {
+    if (!variable?.value?.properties)
+      throw new ISLError(
+        "Cannot instantiate onto non-object variable",
+        TypeError
+      );
     variable.value.islproto = this;
-    variable.value.name = this.name
-    for(let prop of Object.keys(this.properties)){
-      variable.value.properties[prop] = structuredClone(this.properties[prop])
+    variable.value.name = this.name;
+    for (let prop of Object.keys(this.properties)) {
+      variable.value.properties[prop] = structuredClone(this.properties[prop]);
     }
   }
 }
 
-class ISLObject{
-  static null = new ISLClass("null")
+class ISLObject {
+  static null = new ISLClass("null");
   properties = Object.create(null);
-  name = "object"
+  name = "object";
   islproto = ISLObject.null;
-  create(name, type = null, value = null){
-    if(this.properties[name]) throw new ISLError("Cannot redefine property '"+name+"'", SyntaxError)
-    this.properties[name] = {type: type, value: value}
+  create(name, type = null, value = null) {
+    if (this.properties[name])
+      throw new ISLError(
+        "Cannot redefine property '" + name + "'",
+        SyntaxError
+      );
+    this.properties[name] = { type: type, value: value };
   }
-  delete(name){
-    if(!this.properties[name]) throw new ISLError("Cannot delete nonexistent property '"+name+"'", SyntaxError)
-    delete this.properties[name]
+  delete(name) {
+    if (!this.properties[name])
+      throw new ISLError(
+        "Cannot delete nonexistent property '" + name + "'",
+        SyntaxError
+      );
+    delete this.properties[name];
   }
   toString() {
-    let props = []
-    for(let prop of Object.keys(this.properties)){
-      props.push((this.properties[prop]?.type??"(none)")+" "+prop+": "+(this.properties[prop]?.value??"(empty)"))
+    let props = [];
+    for (let prop of Object.keys(this.properties)) {
+      props.push(
+        (this.properties[prop]?.type ?? "(none)") +
+          " " +
+          prop +
+          ": " +
+          (this.properties[prop]?.value ?? "(empty)")
+      );
     }
     return this.name + " < " + props.join(", ") + " >";
   }
   //for later inheritance or something
-  getProp(name, thisArg = this, isNotThis = false){
+  getProp(name, thisArg = this, isNotThis = false) {
     let prop = thisArg.properties[name];
-    if(isNotThis) prop = { type: prop.type, value: prop.value }
-    if(prop) return prop;
-    else if(thisArg.islproto !== ISLObject.null){
+    if (isNotThis) prop = { type: prop.type, value: prop.value };
+    if (prop) return prop;
+    else if (thisArg.islproto !== ISLObject.null) {
       return this.getProp(name, thisArg, true);
-    }
-    else{
+    } else {
       return null;
     }
   }
 }
-
 
 export { ISLInterpreter, ISLError };
