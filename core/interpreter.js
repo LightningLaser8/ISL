@@ -90,21 +90,6 @@ class ISLInterpreter {
   #classCreating = null;
   #constructing = null;
 
-  static #ISLConsole = class ISLConsole extends Array {
-    log(...msg) {
-      this.push(...msg);
-    }
-    warn(...msg) {
-      this.push(...msg);
-    }
-    error(...msg) {
-      this.push(...msg);
-    }
-  };
-
-  //IO
-  #console = new ISLInterpreter.#ISLConsole();
-
   //Listeners, i guess
   #listeningForKeyPress = false;
   #listenerTarget;
@@ -437,23 +422,6 @@ class ISLInterpreter {
     delete this.#pressed[event.key];
   }
 
-  /**
-   * Logs the entire internal output console to the JS one.
-   */
-  #flush() {
-    this.#log(this.#console.join(""));
-    this.#console = [];
-  }
-  /**
-   * Logs the entire internal output console to the JS one in lines.
-   */
-  #flushSeparate() {
-    let len = this.#console.length;
-    for (let m = 0; m < len; m++) {
-      this.#log(this.#console[0]);
-      this.#console.splice(0, 1);
-    }
-  }
   /**
    * Loads ISL into the interpreter's buffer.
    * @param {Array<String>} array Array of ISL lines as strings.
@@ -1245,7 +1213,6 @@ class ISLInterpreter {
     this.#functions = {};
     this.#callstack = [];
     this.#parameters = {};
-    this.#console.splice(0);
   }
   /**
    * Completely resets everything, except for internal storage.
@@ -1315,7 +1282,6 @@ class ISLInterpreter {
   #warn(...msg) {
     if (this.#meta.strictMode) {
       throw new ISLError(msg.join(" "), EscalatedError);
-      return;
     }
     if (!this.#silenced) {
       this.#onwarn(...msg);
@@ -1925,7 +1891,7 @@ class ISLInterpreter {
     varToModify.value = Math.round(varToModify.value);
   }
   #isl_negate(variable) {
-    const varToModify = this.#getVarObj(variable);
+    const varToModify = this.#getVarRestricted(variable);
     if (varToModify.type !== "number") {
       throw new ISLError(
         "Cannot negate a variable with type '" + varToModify.type + "'",
@@ -1938,8 +1904,16 @@ class ISLInterpreter {
   }
   //IO
   #isl_log(...value) {
-    this.#console.push(...value);
-    this.#flush();
+    this.#log(...value);
+  }
+  #isl_warn(...value) {
+    this.#warn(...value);
+  }
+  #isl_error(...value) {
+    if(this.#tagMessages){
+      this.#error(this.#name+": "+value.join(" "));
+    }
+    else this.#error(value.join(" "));
   }
   #isl_popup_input(variable, value) {
     let v = this.#getVarObj(variable);
@@ -2575,15 +2549,18 @@ class ISLInterpreter {
       },
       descriptors: [{ type: "any", name: "message", recurring: true }],
     },
-    flush: {
+    warn: {
       callback: (labels, ...inputs) => {
-        if (labels.includes("separated")) {
-          this.#flushSeparate();
-        } else {
-          this.#flush();
-        }
+        this.#isl_warn(...inputs.map((x) => x.value));
       },
-      descriptors: [],
+      descriptors: [{ type: "any", name: "message", recurring: true }],
+    },
+    error: {
+      callback: (labels, ...inputs) => {
+        this.#isl_error(...inputs.map((x) => x.value));
+        this.stopExecution()
+      },
+      descriptors: [{ type: "any", name: "message", recurring: true }],
     },
     "popup-input": {
       callback: (labels, ...inputs) => {
