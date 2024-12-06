@@ -1078,7 +1078,7 @@ class ISLInterpreter {
     let source = startPoint;
     let obj = null;
     let getPathPoint = (index) => {
-      if (path[index][0] === ":") {
+      if (path[index][0] === ">") {
         let newLoc = path.slice(index).join(".").substring(1);
         if (this.#debug) {
           this.#log("Deferred getter to: " + newLoc);
@@ -2109,6 +2109,7 @@ class ISLInterpreter {
     if(name[0]===":") type = "parameter"
     if(name[0]==="-") type = "local-variable"
     if(name[0]==="_") type = "global-variable"
+    if(type !== "variable") getter = getter.substring(1)
     return this.#getVariableFromRef(getter, type)
   }
   #getVarRestricted(name){
@@ -2116,6 +2117,7 @@ class ISLInterpreter {
     let type = "variable"
     if(name[0]===":") type = "parameter"
     if(name[0]==="-") type = "local-variable"
+    if(type !== "variable") getter = getter.substring(1)
     return this.#getVariableFromRef(getter, type)
   }
   //Program Interface
