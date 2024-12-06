@@ -1115,7 +1115,7 @@ class ISLInterpreter {
         if (this.#debug) {
           this.#log("Deferred getter to: " + newLoc);
         }
-        return this.#getVariableInContext(newLoc, startPoint).value;
+        return this.#getVar(newLoc).value;
       }
       return path[index];
     };
@@ -1814,7 +1814,7 @@ class ISLInterpreter {
   }
   //Variable Manipulation: Binary operators
   #isl_add(variable, value) {
-    const varToModify = this.#getVarObj(variable);
+    const varToModify = this.#getVarRestricted(variable);
     if (varToModify.type === "group") {
       varToModify.value.push(value);
       return;
@@ -1828,7 +1828,7 @@ class ISLInterpreter {
     varToModify.value += value.value;
   }
   #isl_sub(variable, value) {
-    const varToModify = this.#getVarObj(variable);
+    const varToModify = this.#getVarRestricted(variable);
     if (varToModify.type !== "number") {
       throw new ISLError(
         "Cannot subtract from a variable with type '" + varToModify.type + "'",
@@ -1839,7 +1839,7 @@ class ISLInterpreter {
     varToModify.type = "number";
   }
   #isl_mult(variable, value) {
-    const varToModify = this.#getVarObj(variable);
+    const varToModify = this.#getVarRestricted(variable);
     if (varToModify.type !== "number") {
       throw new ISLError(
         "Cannot multiply a variable with type '" + varToModify.type + "'",
@@ -1850,7 +1850,7 @@ class ISLInterpreter {
     varToModify.type = "number";
   }
   #isl_exp(variable, value) {
-    const varToModify = this.#getVarObj(variable);
+    const varToModify = this.#getVarRestricted(variable);
     if (varToModify.type !== "number") {
       throw new ISLError(
         "Cannot exponentiate a variable with type '" + varToModify.type + "'",
@@ -1861,7 +1861,7 @@ class ISLInterpreter {
     varToModify.type = "number";
   }
   #isl_root(variable, value) {
-    const varToModify = this.#getVarObj(variable);
+    const varToModify = this.#getVarRestricted(variable);
     if (varToModify.type !== "number") {
       throw new ISLError(
         "Cannot calculate nth root of a variable with type '" +
@@ -1875,7 +1875,7 @@ class ISLInterpreter {
   }
   #isl_div(variable, value) {
     //Now with static typing!
-    const varToModify = this.#getVarObj(variable);
+    const varToModify = this.#getVarRestricted(variable);
     if (varToModify.type !== "number") {
       throw new ISLError(
         "Cannot divide a variable with type '" + varToModify.type + "'",
@@ -1886,7 +1886,7 @@ class ISLInterpreter {
     varToModify.type = "number";
   }
   #isl_set(variable, value) {
-    const varToModify = this.#getVarObj(variable);
+    const varToModify = this.#getVarRestricted(variable);
     if (varToModify.type === undefined) {
       varToModify.type = value.type;
     }
@@ -1903,7 +1903,7 @@ class ISLInterpreter {
     varToModify.value = value.value;
   }
   #isl_create(name, varName, type) {
-    let v = this.#getVarObj(varName);
+    let v = this.#getVarRestricted(varName);
     if (v.type !== "object")
       throw new ISLError(
         "Variable '" + varName + "' is not an object!",
@@ -1913,7 +1913,7 @@ class ISLInterpreter {
   }
   //Variable Manipulation: Unary operators
   #isl_round(variable) {
-    const varToModify = this.#getVarObj(variable);
+    const varToModify = this.#getVarRestricted(variable);
     if (varToModify.type !== "number") {
       throw new ISLError(
         "Cannot round a variable with type '" + varToModify.type + "'",
@@ -2128,19 +2128,35 @@ class ISLInterpreter {
     this.#classes[name] = new ISLClass(name);
     this.#classCreating = this.#classes[name];
   }
+  //Random interlude
+  #getVar(name){
+    let getter = name
+    let type = "variable"
+    if(name[0]===":") type = "parameter"
+    if(name[0]==="-") type = "local-variable"
+    if(name[0]==="_") type = "global-variable"
+    return this.#getVariableFromRef(getter, type)
+  }
+  #getVarRestricted(name){
+    let getter = name
+    let type = "variable"
+    if(name[0]===":") type = "parameter"
+    if(name[0]==="-") type = "local-variable"
+    return this.#getVariableFromRef(getter, type)
+  }
   //Program Interface
   #isl_export(local, mode, external) {
     if (this.allowExport) {
       if (mode === "to") {
         this.#setVariableFromFullPath(
           external,
-          this.#getVariableInContext(local).value
+          this.#getVar(local).value
         );
       }
       if (mode === "as") {
         this.#setVariableFromFullPath(
           external,
-          this.#getVariableInContext(local).value,
+          this.#getVar(local).value,
           true
         );
       }
@@ -2159,7 +2175,7 @@ class ISLInterpreter {
       if (mode === "as") {
         this.#isl_declare("var", local);
         const newValue = this.#getVariableFromFullPath(external);
-        this.#getVariableInContext(local, this.#localVariables).value =
+        this.#getVar(local, this.#localVariables).value =
           newValue;
       }
     } else {
