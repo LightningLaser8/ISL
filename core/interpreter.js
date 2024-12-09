@@ -2151,8 +2151,7 @@ class ISLInterpreter {
       if (mode === "as") {
         this.#isl_declare("var", local);
         const newValue = this.#getVariableFromFullPath(external);
-        this.#getVar(local, this.#localVariables).value =
-          newValue;
+        this.#isl_set(local, newValue);
       }
     } else {
       this.#handleDisallowedOperation("Import of " + external + ".");
