@@ -39,6 +39,7 @@ class ISLInterpreter {
         "'var'",
         "'group'",
         "'object'",
+        "'boolean'"
       ],
       type: "split",
       display: "'declare var/cmd'",
@@ -114,6 +115,7 @@ class ISLInterpreter {
     { label: "non-destructive", for: ["restart"] },
     { label: "separated", for: ["flush"] },
     { label: "grouped", for: ["getkeys"] },
+    { label: "temporary", for: ["string", "number", "boolean", "group", "object", "var"] }
   ];
   #currentLabels = [];
 
@@ -997,6 +999,7 @@ class ISLInterpreter {
    * @returns
    */
   #toParameterObjects(func, parameters) {
+    parameters = parameters.map(x => {if(x)return x})
     if (this.#debug) {
       this.#log("Input: function: '" + func + "' parameters:", parameters);
     }
@@ -1024,17 +1027,17 @@ class ISLInterpreter {
     for (let p = 0; p < parameters.length; p++) {
       let parameter = parameters[p];
       if (this.#debug) {
-        this.#log("parameter index " + p + " = ", parameter.value);
+        this.#log("parameter index " + p + " = ", parameter?.value);
       }
-      if (expectedParams[p].type !== parameter.type) {
+      if (expectedParams[p]?.type !== parameter?.type) {
         throw new ISLError(
           "Parameter '" +
             expectedParams[p].name +
             "' has type '" +
             expectedParams[p].type +
             "', but was given an argument of type '" +
-            parameter.type +
-            "'",
+            parameter?.type +
+            "' ('"+parameter?.value+"')",
           TypeError
         );
       }
@@ -1111,11 +1114,12 @@ class ISLInterpreter {
           );
         let inNum = parseInt(getPathPoint(index));
         if (!isNaN(inNum)) {
-          if (!source.value.indexer)
+          if (!source.value.indexer){
             throw new ISLError(
               "'" + path.slice(0, index).join(".") + "' has no indexer.",
               SyntaxError
             );
+          }
           source = source.value.indexer(inNum);
         } else if (source.value instanceof ISLObject) {
           source = source.value.getProp(getPathPoint(index));
@@ -1608,7 +1612,7 @@ class ISLInterpreter {
       }
       if (
         this.#doesVarExist(name) &&
-        this.#hasVarBeenDeclaredInCurrentRun(name)
+        this.#hasVarBeenDeclaredInCurrentRun(name) && !this.#currentLabels.includes("temporary")
       ) {
         throw new ISLError(
           "Cannot redeclare local variable '" + name + "'",
@@ -1697,7 +1701,9 @@ class ISLInterpreter {
           if (this.#iterator.func === name) {
             this.#iterator.index++;
             if (this.#iterator.index < this.#iterator.group.length) {
-              this.#counter = this.#functions[name].indexStart;
+              let item = this.#iterator.group[this.#iterator.index]
+              this.#moveUpCallstack()
+              this.#isl_execute(name, item)
               let toMod =
                 this.#parameters[this.#functions[name]?.params[0]?.name];
               if (!toMod) {
@@ -1706,7 +1712,6 @@ class ISLInterpreter {
                   SyntaxError
                 );
               }
-              let item = this.#iterator.group[this.#iterator.index];
               toMod.value = item.value;
               if (!toMod.type === item.type) {
                 throw new ISLError(
@@ -1727,26 +1732,29 @@ class ISLInterpreter {
           }
         }
         //return up the callstack
-        let previous = this.#callstack.pop(); //callstack has {calledFrom: number, func: String, params: Array<String>}
-        let continuing = this.#callstack[0] ?? {
-          calledFrom: 0,
-          func: "",
-          params: [],
-        };
-        this.#counter = previous?.calledFrom ?? this.#counter;
-        this.#parameters = this.#toParameterObjects(
-          continuing.func,
-          continuing.params
-        );
-        if (this.#debug) {
-          this.#log("Moved up; Callstack is now", this.#callstack);
-        }
+        this.#moveUpCallstack()
       } else {
         this.#functions[name].ended = true;
         if (this.#debug) {
           this.#log("Function declaration ended");
         }
       }
+    }
+  }
+  #moveUpCallstack(){
+    let previous = this.#callstack.pop(); //callstack has {calledFrom: number, func: String, params: Array<String>}
+    let continuing = this.#callstack[0] ?? {
+      calledFrom: 0,
+      func: "",
+      params: [],
+    };
+    this.#counter = previous?.calledFrom ?? this.#counter;
+    this.#parameters = this.#toParameterObjects(
+      continuing.func,
+      continuing.params
+    );
+    if (this.#debug) {
+      this.#log("Moved up; Callstack is now", this.#callstack);
     }
   }
   #isl_execute(func, ...inParameters) {
@@ -2045,7 +2053,7 @@ class ISLInterpreter {
         });
         if (code[3].type !== code[0].value)
           throw new ISLError(
-            "Default value type does not match property type!",
+            "Default value type does not match property type! (expected '"+code[3].type+"', got '"+code[0].value+"')",
             TypeError
           );
         if (this.#classCreating.properties[code[1].value])
@@ -2375,7 +2383,7 @@ class ISLInterpreter {
       },
       descriptors: [{ type: "identifier", name: "name" }],
     },
-    bool: {
+    boolean: {
       callback: (labels, ...inputs) => {
         this.#isl_declare("var", inputs[0].value, false, "boolean");
       },
@@ -2795,6 +2803,11 @@ class ISLClass {
     variable.value.name = this.name;
     for (let prop of Object.keys(this.properties)) {
       variable.value.properties[prop] = structuredClone(this.properties[prop]);
+      if(variable.value.properties[prop].type === "group"){
+        let grp = new ISLGroup()
+        grp.push(...variable.value.properties[prop].value)
+        variable.value.properties[prop].value = grp
+      }
     }
   }
 }
