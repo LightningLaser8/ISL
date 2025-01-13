@@ -39,7 +39,7 @@ class ISLInterpreter {
         "'var'",
         "'group'",
         "'object'",
-        "'boolean'"
+        "'boolean'",
       ],
       type: "split",
       display: "'declare var/cmd'",
@@ -115,7 +115,10 @@ class ISLInterpreter {
     { label: "non-destructive", for: ["restart"] },
     { label: "separated", for: ["flush"] },
     { label: "grouped", for: ["getkeys"] },
-    { label: "temporary", for: ["string", "number", "boolean", "group", "object", "var"] }
+    {
+      label: "temporary",
+      for: ["string", "number", "boolean", "group", "object", "var"],
+    },
   ];
   #currentLabels = [];
 
@@ -609,7 +612,7 @@ class ISLInterpreter {
     }
   }
   #executeLineInternal(line) {
-    if(this.#debug) console.groupCollapsed("Line "+this.#pc)
+    if (this.#debug) console.groupCollapsed("Line " + this.#pc);
     exe: if (line != null && line != undefined && line != "" && line != "\n") {
       let noComment = ISLInterpreter.#removeISLComment(line).trim();
       if (
@@ -625,7 +628,7 @@ class ISLInterpreter {
         this.#parseLine(noComment);
       }
     }
-    if(this.#debug) console.groupEnd()
+    if (this.#debug) console.groupEnd();
   }
   #getVariableFromRef(contents, type = "variable") {
     //Figure out what this is
@@ -645,6 +648,233 @@ class ISLInterpreter {
       return obj;
     }
     return this.#getVarObj(contents);
+  }
+  /**
+   * Returns an array of parts describing this line, without actually executing it. Can throw syntax errors.
+   * @param {string} line Line of ISL code.
+   */
+  tokenize(line) {
+    let inQuotes = false,
+      inSquareBrackets = false,
+      inBackslashes = false,
+      inRegularBrackets = false;
+    let currentComponent = "";
+    let components = [];
+    let currentType = "identifier";
+    let pushContext = components;
+    let errors = [];
+    try {
+      if (this.#debug) this.#log("Tokenizing line '" + line + "'");
+      let removeComponent = () => {
+        let removed = components.pop();
+        if (this.#debug) {
+          this.#log(
+            "Removed component '" +
+              removed.value +
+              "' (type '" +
+              removed.type +
+              "')"
+          );
+        }
+      };
+      let addComponent = (
+        content = "",
+        type = currentType,
+        setType = false
+      ) => {
+        if (!isComponent(content)) {
+          if (this.#debug)
+            this.#log("'" + content + "' is not a valid component, skipping");
+          return;
+        } //Remove bad components
+        if (this.#debug) {
+          this.#log("Component: '" + content + "' type '" + type + "'");
+        }
+        let obj = { value: content, type: type };
+        if (!setType) {
+          obj = ISLInterpreter.#restoreOriginalType(obj);
+          if (obj.type === "identifier") {
+            for (let type in this.#literals) {
+              let func = this.#literals[type];
+              if (func(obj.value)) {
+                obj.type = type;
+              }
+            }
+          }
+        }
+        if (this.#debug) {
+          if (obj)
+            this.#log("Converted: '" + obj.value + "' type '" + obj.type + "'");
+          else this.#log("No object!");
+        }
+        if (obj.value !== null) {
+          pushContext.push(obj);
+          if (this.#debug) this.#log("Added to parts: ", obj);
+        } else {
+          if (this.#debug) this.#log("Skipped, value was null");
+        }
+        currentType = "identifier"; //Reset type
+        currentComponent = "";
+      };
+      let isComponent = (component) => {
+        return (
+          component instanceof ISLGroup ||
+          component.length > 0 ||
+          currentType !== "identifier"
+        );
+      };
+      for (let index = 0; index < line.length; index++) {
+        let character = line[index];
+        //SPACES
+        //Generic space
+        if (character === " " && !inQuotes && !inSquareBrackets) {
+          addComponent(currentComponent);
+          continue; //Ignore the space
+        }
+        if (!this.#skipping) {
+          //QUOTES
+          //Opening quote
+          if (character === '"' && !inQuotes) {
+            inQuotes = true;
+            addComponent(currentComponent); //Push everything before as a component
+            currentType = "string"; //It's a string!
+            continue; //Ignore the quote
+          }
+          //Closing quote
+          if (character === '"' && inQuotes) {
+            if (currentType !== "string")
+              throw new ISLError("Unexpected closing '\"'", SyntaxError);
+            inQuotes = false;
+            addComponent(currentComponent); //Push everything as a component
+            continue; //Ignore the quote
+          }
+
+          //VAR REFS
+          //Opening backslash
+          if (
+            character === "\\" &&
+            !inQuotes &&
+            !inBackslashes &&
+            !inRegularBrackets
+          ) {
+            inBackslashes = true;
+            addComponent(currentComponent); //Push everything before as a component
+            currentType = "variable";
+            if (line[index - 1] === "-") {
+              currentType = "local-variable";
+              removeComponent();
+            }
+            if (line[index - 1] === ":") {
+              currentType = "parameter";
+              removeComponent();
+            }
+            if (line[index + 1] === "_") currentType = "global-variable";
+            if (this.#debug)
+              this.#log("Variable getter with type: '" + currentType + "'");
+            continue; //Ignore the slash
+          }
+          //Closing backslash
+          if (
+            character === "\\" &&
+            !inQuotes &&
+            inBackslashes &&
+            !inRegularBrackets
+          ) {
+            inBackslashes = false;
+            if (
+              currentType !== "variable" &&
+              currentType !== "local-variable" &&
+              currentType !== "parameter" &&
+              currentType !== "global-variable"
+            )
+              throw new ISLError("Unexpected closing '\\'", SyntaxError);
+            addComponent(currentComponent, "@"+currentType, true); //Push the variable content as a component
+            currentComponent = ""; //Clear component
+            continue; //You get it by now
+          }
+
+          //BRACKETS
+          //Opening bracket
+          if (
+            character === "[" &&
+            !inQuotes &&
+            !inSquareBrackets &&
+            !inBackslashes &&
+            !inRegularBrackets
+          ) {
+            inSquareBrackets = true;
+            addComponent(currentComponent); //Push everything before as a component
+            pushContext = new ISLGroup(); //Create group
+            continue; //Ignore the bracket
+          }
+          if (
+            character === "|" &&
+            !inQuotes &&
+            inSquareBrackets &&
+            !inBackslashes &&
+            !inRegularBrackets
+          ) {
+            addComponent(currentComponent);
+            currentType = "identifier";
+            continue;
+          }
+          //Closing bracket
+          if (
+            character === "]" &&
+            !inQuotes &&
+            !inBackslashes &&
+            !inRegularBrackets
+          ) {
+            if (!inSquareBrackets)
+              throw new ISLError("Unexpected closing ']'", SyntaxError);
+            inSquareBrackets = false;
+            addComponent(currentComponent); //End group
+            let newGrp = pushContext;
+            pushContext = components;
+            addComponent(newGrp, "group", true); //Push everything as a component
+            continue; //Ignore the bracket
+          }
+          //NORMAL BRACKETS
+          //(Function return values)
+          if (
+            character === "(" &&
+            !inQuotes &&
+            !inRegularBrackets &&
+            !inBackslashes
+          ) {
+            inRegularBrackets = true;
+            addComponent(currentComponent); //Push everything before as a component
+            continue; //Ignore the bracket
+          }
+          if (character === ")" && !inQuotes && !inBackslashes) {
+            if (!inRegularBrackets)
+              throw new ISLError("Unexpected closing ')'", SyntaxError);
+            inRegularBrackets = false;
+            addComponent(currentComponent, "@function-return", true);
+            currentComponent = ""; //Reset
+            continue; //Ignore the bracket
+          }
+        }
+
+        //If nothing else happened
+        currentComponent += character;
+      }
+      addComponent(currentComponent); //End it
+      //Final validation
+      if (inQuotes)
+        throw new ISLError("Unterminated string literal", SyntaxError);
+      if (inSquareBrackets)
+        throw new ISLError("Unterminated bracket group", SyntaxError);
+      if (inBackslashes)
+        throw new ISLError("Unterminated variable getter", SyntaxError);
+      if (inRegularBrackets)
+        throw new ISLError("Unterminated function return getter", SyntaxError);
+    } catch (error) {
+      if(error instanceof ISLError) errors.push({error: error.message, type: error.type.name});
+      else throw error;
+    }
+
+    return { components: components, errors: errors };
   }
   /**
    * Parses a line of ISL code into an array of ISL parts.
@@ -742,7 +972,12 @@ class ISLInterpreter {
 
         //VAR REFS
         //Opening backslash
-        if (character === "\\" && !inQuotes && !inBackslashes && !inRegularBrackets) {
+        if (
+          character === "\\" &&
+          !inQuotes &&
+          !inBackslashes &&
+          !inRegularBrackets
+        ) {
           inBackslashes = true;
           addComponent(currentComponent); //Push everything before as a component
           currentType = "variable";
@@ -760,7 +995,12 @@ class ISLInterpreter {
           continue; //Ignore the slash
         }
         //Closing backslash
-        if (character === "\\" && !inQuotes && inBackslashes && !inRegularBrackets) {
+        if (
+          character === "\\" &&
+          !inQuotes &&
+          inBackslashes &&
+          !inRegularBrackets
+        ) {
           inBackslashes = false;
           if (
             currentType !== "variable" &&
@@ -784,7 +1024,8 @@ class ISLInterpreter {
           character === "[" &&
           !inQuotes &&
           !inSquareBrackets &&
-          !inBackslashes && !inRegularBrackets
+          !inBackslashes &&
+          !inRegularBrackets
         ) {
           inSquareBrackets = true;
           addComponent(currentComponent); //Push everything before as a component
@@ -798,7 +1039,8 @@ class ISLInterpreter {
           character === "|" &&
           !inQuotes &&
           inSquareBrackets &&
-          !inBackslashes && !inRegularBrackets
+          !inBackslashes &&
+          !inRegularBrackets
         ) {
           addComponent(currentComponent);
           currentType = "identifier";
@@ -808,7 +1050,12 @@ class ISLInterpreter {
           continue;
         }
         //Closing bracket
-        if (character === "]" && !inQuotes && !inBackslashes && !inRegularBrackets) {
+        if (
+          character === "]" &&
+          !inQuotes &&
+          !inBackslashes &&
+          !inRegularBrackets
+        ) {
           if (!inSquareBrackets)
             throw new ISLError("Unexpected closing ']'", SyntaxError);
           inSquareBrackets = false;
@@ -840,17 +1087,38 @@ class ISLInterpreter {
           if (!inRegularBrackets)
             throw new ISLError("Unexpected closing ')'", SyntaxError);
           inRegularBrackets = false;
-          if(!this.#doesFuncExist(currentComponent)) throw new ISLError("Function '"+currentComponent+"' does not exist!", ReferenceError)
-          let func = this.#getFunction(currentComponent)
-          if(func.return.type === undefined) throw new ISLError("Function '"+currentComponent+"' must be run before trying to get its return value!", ReferenceError)
+          if (!this.#doesFuncExist(currentComponent))
+            throw new ISLError(
+              "Function '" + currentComponent + "' does not exist!",
+              ReferenceError
+            );
+          let func = this.#getFunction(currentComponent);
+          if (func.return.type === undefined)
+            throw new ISLError(
+              "Function '" +
+                currentComponent +
+                "' must be run before trying to get its return value!",
+              ReferenceError
+            );
           if (this.#debug) {
-            this.#log("Preparing return: '"+func.return.value+"' ("+func.return.type+")");
+            this.#log(
+              "Preparing return: '" +
+                func.return.value +
+                "' (" +
+                func.return.type +
+                ")"
+            );
           }
           currentType = func.return.type;
-          addComponent(func.return.value, func.return.type, true)
-          currentComponent = "" //Reset
+          addComponent(func.return.value, func.return.type, true);
+          currentComponent = ""; //Reset
           if (this.#debug) {
-            this.#log(") End of grab: " + currentComponent+", value: "+func.return.value);
+            this.#log(
+              ") End of grab: " +
+                currentComponent +
+                ", value: " +
+                func.return.value
+            );
           }
           continue; //Ignore the bracket
         }
@@ -867,6 +1135,8 @@ class ISLInterpreter {
       throw new ISLError("Unterminated bracket group", SyntaxError);
     if (inBackslashes)
       throw new ISLError("Unterminated variable getter", SyntaxError);
+    if (inRegularBrackets)
+      throw new ISLError("Unterminated function return getter", SyntaxError);
     this.#executeStatement(components);
   }
   #parseMeta(metaTag) {
@@ -999,7 +1269,9 @@ class ISLInterpreter {
    * @returns
    */
   #toParameterObjects(func, parameters) {
-    parameters = parameters.map(x => {if(x)return x})
+    parameters = parameters.map((x) => {
+      if (x) return x;
+    });
     if (this.#debug) {
       this.#log("Input: function: '" + func + "' parameters:", parameters);
     }
@@ -1037,7 +1309,9 @@ class ISLInterpreter {
             expectedParams[p].type +
             "', but was given an argument of type '" +
             parameter?.type +
-            "' ('"+parameter?.value+"')",
+            "' ('" +
+            parameter?.value +
+            "')",
           TypeError
         );
       }
@@ -1114,7 +1388,7 @@ class ISLInterpreter {
           );
         let inNum = parseInt(getPathPoint(index));
         if (!isNaN(inNum)) {
-          if (!source.value.indexer){
+          if (!source.value.indexer) {
             throw new ISLError(
               "'" + path.slice(0, index).join(".") + "' has no indexer.",
               SyntaxError
@@ -1612,7 +1886,8 @@ class ISLInterpreter {
       }
       if (
         this.#doesVarExist(name) &&
-        this.#hasVarBeenDeclaredInCurrentRun(name) && !this.#currentLabels.includes("temporary")
+        this.#hasVarBeenDeclaredInCurrentRun(name) &&
+        !this.#currentLabels.includes("temporary")
       ) {
         throw new ISLError(
           "Cannot redeclare local variable '" + name + "'",
@@ -1656,7 +1931,7 @@ class ISLInterpreter {
           declared: true,
           ended: false,
           params: params,
-          return: { value: null, type: undefined}
+          return: { value: null, type: undefined },
         };
         if (this.#debug) {
           this.#log("function object is now", this.#functions[name]);
@@ -1692,18 +1967,18 @@ class ISLInterpreter {
       this.#functions[name].indexEnd = this.#counter;
 
       if (this.#functions[name].ended) {
-        if(retobj) {
-          if (this.#debug) this.#log("Returning value",retobj)
-          this.#functions[name].return = retobj
+        if (retobj) {
+          if (this.#debug) this.#log("Returning value", retobj);
+          this.#functions[name].return = retobj;
         }
         //check for iterator
         if (this.#iterating) {
           if (this.#iterator.func === name) {
             this.#iterator.index++;
             if (this.#iterator.index < this.#iterator.group.length) {
-              let item = this.#iterator.group[this.#iterator.index]
-              this.#moveUpCallstack()
-              this.#isl_execute(name, item)
+              let item = this.#iterator.group[this.#iterator.index];
+              this.#moveUpCallstack();
+              this.#isl_execute(name, item);
               let toMod =
                 this.#parameters[this.#functions[name]?.params[0]?.name];
               if (!toMod) {
@@ -1732,7 +2007,7 @@ class ISLInterpreter {
           }
         }
         //return up the callstack
-        this.#moveUpCallstack()
+        this.#moveUpCallstack();
       } else {
         this.#functions[name].ended = true;
         if (this.#debug) {
@@ -1741,7 +2016,7 @@ class ISLInterpreter {
       }
     }
   }
-  #moveUpCallstack(){
+  #moveUpCallstack() {
     let previous = this.#callstack.pop(); //callstack has {calledFrom: number, func: String, params: Array<String>}
     let continuing = this.#callstack[0] ?? {
       calledFrom: 0,
@@ -1918,10 +2193,9 @@ class ISLInterpreter {
     this.#warn(...value);
   }
   #isl_error(...value) {
-    if(this.#tagMessages){
-      this.#error(this.#name+": "+value.join(" "));
-    }
-    else this.#error(value.join(" "));
+    if (this.#tagMessages) {
+      this.#error(this.#name + ": " + value.join(" "));
+    } else this.#error(value.join(" "));
   }
   #isl_popup_input(variable, value) {
     let v = this.#getVarObj(variable);
@@ -2053,7 +2327,11 @@ class ISLInterpreter {
         });
         if (code[3].type !== code[0].value)
           throw new ISLError(
-            "Default value type does not match property type! (expected '"+code[3].type+"', got '"+code[0].value+"')",
+            "Default value type does not match property type! (expected '" +
+              code[3].type +
+              "', got '" +
+              code[0].value +
+              "')",
             TypeError
           );
         if (this.#classCreating.properties[code[1].value])
@@ -2111,31 +2389,28 @@ class ISLInterpreter {
     this.#classCreating = this.#classes[name];
   }
   //Random interlude
-  #getVar(name){
-    let getter = name
-    let type = "variable"
-    if(name[0]===":") type = "parameter"
-    if(name[0]==="-") type = "local-variable"
-    if(name[0]==="_") type = "global-variable"
-    if(type !== "variable") getter = getter.substring(1)
-    return this.#getVariableFromRef(getter, type)
+  #getVar(name) {
+    let getter = name;
+    let type = "variable";
+    if (name[0] === ":") type = "parameter";
+    if (name[0] === "-") type = "local-variable";
+    if (name[0] === "_") type = "global-variable";
+    if (type !== "variable") getter = getter.substring(1);
+    return this.#getVariableFromRef(getter, type);
   }
-  #getVarRestricted(name){
-    let getter = name
-    let type = "variable"
-    if(name[0]===":") type = "parameter"
-    if(name[0]==="-") type = "local-variable"
-    if(type !== "variable") getter = getter.substring(1)
-    return this.#getVariableFromRef(getter, type)
+  #getVarRestricted(name) {
+    let getter = name;
+    let type = "variable";
+    if (name[0] === ":") type = "parameter";
+    if (name[0] === "-") type = "local-variable";
+    if (type !== "variable") getter = getter.substring(1);
+    return this.#getVariableFromRef(getter, type);
   }
   //Program Interface
   #isl_export(local, mode, external) {
     if (this.allowExport) {
       if (mode === "to") {
-        this.#setVariableFromFullPath(
-          external,
-          this.#getVar(local).value
-        );
+        this.#setVariableFromFullPath(external, this.#getVar(local).value);
       }
       if (mode === "as") {
         this.#setVariableFromFullPath(
@@ -2456,7 +2731,7 @@ class ISLInterpreter {
       descriptors: [
         { type: "identifier", name: "name" },
         { type: "=return", name: "separator", optional: true },
-        { type: "any", name: "value", optional: true }
+        { type: "any", name: "value", optional: true },
       ],
     },
     execute: {
@@ -2567,7 +2842,7 @@ class ISLInterpreter {
     error: {
       callback: (labels, ...inputs) => {
         this.#isl_error(...inputs.map((x) => x.value));
-        this.stopExecution()
+        this.stopExecution();
       },
       descriptors: [{ type: "any", name: "message", recurring: true }],
     },
@@ -2803,10 +3078,10 @@ class ISLClass {
     variable.value.name = this.name;
     for (let prop of Object.keys(this.properties)) {
       variable.value.properties[prop] = structuredClone(this.properties[prop]);
-      if(variable.value.properties[prop].type === "group"){
-        let grp = new ISLGroup()
-        grp.push(...variable.value.properties[prop].value)
-        variable.value.properties[prop].value = grp
+      if (variable.value.properties[prop].type === "group") {
+        let grp = new ISLGroup();
+        grp.push(...variable.value.properties[prop].value);
+        variable.value.properties[prop].value = grp;
       }
     }
   }
