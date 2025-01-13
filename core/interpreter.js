@@ -663,216 +663,219 @@ class ISLInterpreter {
     let currentType = "identifier";
     let pushContext = components;
     let errors = [];
-    try {
-      if (this.#debug) this.#log("Tokenizing line '" + line + "'");
-      let removeComponent = () => {
-        let removed = components.pop();
-        if (this.#debug) {
-          this.#log(
-            "Removed component '" +
-              removed.value +
-              "' (type '" +
-              removed.type +
-              "')"
-          );
-        }
-      };
-      let addComponent = (
-        content = "",
-        type = currentType,
-        setType = false
-      ) => {
-        if (!isComponent(content)) {
-          if (this.#debug)
-            this.#log("'" + content + "' is not a valid component, skipping");
-          return;
-        } //Remove bad components
-        if (this.#debug) {
-          this.#log("Component: '" + content + "' type '" + type + "'");
-        }
-        let obj = { value: content, type: type };
-        if (!setType) {
-          obj = ISLInterpreter.#restoreOriginalType(obj);
-          if (obj.type === "identifier") {
-            for (let type in this.#literals) {
-              let func = this.#literals[type];
-              if (func(obj.value)) {
-                obj.type = type;
-              }
+    let removeComponent = () => {
+      let removed = components.pop();
+    };
+    let addComponent = (content = "", type = currentType, setType = false) => {
+      if (!isComponent(content)) return;
+      let obj = { value: content, type: type };
+      if (!setType) {
+        obj = ISLInterpreter.#restoreOriginalType(obj);
+        if (obj.type === "identifier") {
+          for (let type in this.#literals) {
+            let func = this.#literals[type];
+            if (func(obj.value)) {
+              obj.type = type;
             }
           }
         }
-        if (this.#debug) {
-          if (obj)
-            this.#log("Converted: '" + obj.value + "' type '" + obj.type + "'");
-          else this.#log("No object!");
-        }
-        if (obj.value !== null) {
-          pushContext.push(obj);
-          if (this.#debug) this.#log("Added to parts: ", obj);
-        } else {
-          if (this.#debug) this.#log("Skipped, value was null");
-        }
-        currentType = "identifier"; //Reset type
-        currentComponent = "";
-      };
-      let isComponent = (component) => {
-        return (
-          component instanceof ISLGroup ||
-          component.length > 0 ||
-          currentType !== "identifier"
-        );
-      };
-      for (let index = 0; index < line.length; index++) {
-        let character = line[index];
-        //SPACES
-        //Generic space
-        if (character === " " && !inQuotes && !inSquareBrackets) {
-          addComponent(currentComponent);
-          continue; //Ignore the space
-        }
-        if (!this.#skipping) {
-          //QUOTES
-          //Opening quote
-          if (character === '"' && !inQuotes) {
-            inQuotes = true;
-            addComponent(currentComponent); //Push everything before as a component
-            currentType = "string"; //It's a string!
-            continue; //Ignore the quote
-          }
-          //Closing quote
-          if (character === '"' && inQuotes) {
-            if (currentType !== "string")
-              throw new ISLError("Unexpected closing '\"'", SyntaxError);
-            inQuotes = false;
-            addComponent(currentComponent); //Push everything as a component
-            continue; //Ignore the quote
-          }
-
-          //VAR REFS
-          //Opening backslash
-          if (
-            character === "\\" &&
-            !inQuotes &&
-            !inBackslashes &&
-            !inRegularBrackets
-          ) {
-            inBackslashes = true;
-            addComponent(currentComponent); //Push everything before as a component
-            currentType = "variable";
-            if (line[index - 1] === "-") {
-              currentType = "local-variable";
-              removeComponent();
-            }
-            if (line[index - 1] === ":") {
-              currentType = "parameter";
-              removeComponent();
-            }
-            if (line[index + 1] === "_") currentType = "global-variable";
-            if (this.#debug)
-              this.#log("Variable getter with type: '" + currentType + "'");
-            continue; //Ignore the slash
-          }
-          //Closing backslash
-          if (
-            character === "\\" &&
-            !inQuotes &&
-            inBackslashes &&
-            !inRegularBrackets
-          ) {
-            inBackslashes = false;
-            if (
-              currentType !== "variable" &&
-              currentType !== "local-variable" &&
-              currentType !== "parameter" &&
-              currentType !== "global-variable"
-            )
-              throw new ISLError("Unexpected closing '\\'", SyntaxError);
-            addComponent(currentComponent, "@"+currentType, true); //Push the variable content as a component
-            currentComponent = ""; //Clear component
-            continue; //You get it by now
-          }
-
-          //BRACKETS
-          //Opening bracket
-          if (
-            character === "[" &&
-            !inQuotes &&
-            !inSquareBrackets &&
-            !inBackslashes &&
-            !inRegularBrackets
-          ) {
-            inSquareBrackets = true;
-            addComponent(currentComponent); //Push everything before as a component
-            pushContext = new ISLGroup(); //Create group
-            continue; //Ignore the bracket
-          }
-          if (
-            character === "|" &&
-            !inQuotes &&
-            inSquareBrackets &&
-            !inBackslashes &&
-            !inRegularBrackets
-          ) {
-            addComponent(currentComponent);
-            currentType = "identifier";
-            continue;
-          }
-          //Closing bracket
-          if (
-            character === "]" &&
-            !inQuotes &&
-            !inBackslashes &&
-            !inRegularBrackets
-          ) {
-            if (!inSquareBrackets)
-              throw new ISLError("Unexpected closing ']'", SyntaxError);
-            inSquareBrackets = false;
-            addComponent(currentComponent); //End group
-            let newGrp = pushContext;
-            pushContext = components;
-            addComponent(newGrp, "group", true); //Push everything as a component
-            continue; //Ignore the bracket
-          }
-          //NORMAL BRACKETS
-          //(Function return values)
-          if (
-            character === "(" &&
-            !inQuotes &&
-            !inRegularBrackets &&
-            !inBackslashes
-          ) {
-            inRegularBrackets = true;
-            addComponent(currentComponent); //Push everything before as a component
-            continue; //Ignore the bracket
-          }
-          if (character === ")" && !inQuotes && !inBackslashes) {
-            if (!inRegularBrackets)
-              throw new ISLError("Unexpected closing ')'", SyntaxError);
-            inRegularBrackets = false;
-            addComponent(currentComponent, "@function-return", true);
-            currentComponent = ""; //Reset
-            continue; //Ignore the bracket
-          }
-        }
-
-        //If nothing else happened
-        currentComponent += character;
       }
-      addComponent(currentComponent); //End it
-      //Final validation
-      if (inQuotes)
-        throw new ISLError("Unterminated string literal", SyntaxError);
-      if (inSquareBrackets)
-        throw new ISLError("Unterminated bracket group", SyntaxError);
-      if (inBackslashes)
-        throw new ISLError("Unterminated variable getter", SyntaxError);
-      if (inRegularBrackets)
-        throw new ISLError("Unterminated function return getter", SyntaxError);
-    } catch (error) {
-      if(error instanceof ISLError) errors.push({error: error.message, type: error.type.name});
-      else throw error;
+      if (obj.value !== null) pushContext.push(obj);
+      currentType = "identifier"; //Reset type
+      currentComponent = "";
+    };
+    let isComponent = (component) => {
+      return (
+        component instanceof ISLGroup ||
+        component.length > 0 ||
+        currentType !== "identifier"
+      );
+    };
+    for (let index = 0; index < line.length; index++) {
+      let character = line[index];
+      //SPACES
+      //Generic space
+      if (character === " " && !inQuotes && !inSquareBrackets) {
+        addComponent(currentComponent);
+        continue; //Ignore the space
+      }
+      if (!this.#skipping) {
+        //QUOTES
+        //Opening quote
+        if (character === '"' && !inQuotes) {
+          inQuotes = true;
+          addComponent(currentComponent); //Push everything before as a component
+          currentType = "string"; //It's a string!
+          continue; //Ignore the quote
+        }
+        //Closing quote
+        if (character === '"' && inQuotes) {
+          if (currentType !== "string")
+            errors.push({
+              error: "Unexpected closing '\"'",
+              type: "SyntaxError",
+              index: index,
+            });
+          inQuotes = false;
+          addComponent(currentComponent); //Push everything as a component
+          continue; //Ignore the quote
+        }
+
+        //VAR REFS
+        //Opening backslash
+        if (
+          character === "\\" &&
+          !inQuotes &&
+          !inBackslashes &&
+          !inRegularBrackets
+        ) {
+          inBackslashes = true;
+          addComponent(currentComponent); //Push everything before as a component
+          currentType = "variable";
+          if (line[index - 1] === "-") {
+            currentType = "local-variable";
+            removeComponent();
+          }
+          if (line[index - 1] === ":") {
+            currentType = "parameter";
+            removeComponent();
+          }
+          if (line[index + 1] === "_") currentType = "global-variable";
+          if (this.#debug)
+            this.#log("Variable getter with type: '" + currentType + "'");
+          continue; //Ignore the slash
+        }
+        //Closing backslash
+        if (
+          character === "\\" &&
+          !inQuotes &&
+          inBackslashes &&
+          !inRegularBrackets
+        ) {
+          inBackslashes = false;
+          if (
+            currentType !== "variable" &&
+            currentType !== "local-variable" &&
+            currentType !== "parameter" &&
+            currentType !== "global-variable"
+          )
+            errors.push({
+              error: "Unexpected closing '\\'",
+              type: "SyntaxError",
+              index: index,
+            });
+          addComponent(currentComponent, "@" + currentType, true); //Push the variable content as a component
+          currentComponent = ""; //Clear component
+          continue; //You get it by now
+        }
+
+        //BRACKETS
+        //Opening bracket
+        if (
+          character === "[" &&
+          !inQuotes &&
+          !inSquareBrackets &&
+          !inBackslashes &&
+          !inRegularBrackets
+        ) {
+          inSquareBrackets = true;
+          addComponent(currentComponent); //Push everything before as a component
+          pushContext = new ISLGroup(); //Create group
+          continue; //Ignore the bracket
+        }
+        if (
+          character === "|" &&
+          !inQuotes &&
+          inSquareBrackets &&
+          !inBackslashes &&
+          !inRegularBrackets
+        ) {
+          addComponent(currentComponent);
+          currentType = "identifier";
+          continue;
+        }
+        //Closing bracket
+        if (
+          character === "]" &&
+          !inQuotes &&
+          !inBackslashes &&
+          !inRegularBrackets
+        ) {
+          if (!inSquareBrackets)
+            errors.push({
+              error: "Unexpected closing ']'",
+              type: "SyntaxError",
+              index: index,
+            });
+          inSquareBrackets = false;
+          addComponent(currentComponent); //End group
+          let newGrp = pushContext;
+          pushContext = components;
+          addComponent(newGrp, "group", true); //Push everything as a component
+          continue; //Ignore the bracket
+        }
+        //NORMAL BRACKETS
+        //(Function return values)
+        if (
+          character === "(" &&
+          !inQuotes &&
+          !inRegularBrackets &&
+          !inBackslashes
+        ) {
+          inRegularBrackets = true;
+          addComponent(currentComponent); //Push everything before as a component
+          continue; //Ignore the bracket
+        }
+        if (character === ")" && !inQuotes && !inBackslashes) {
+          if (!inRegularBrackets)
+            errors.push({
+              error: "Unexpected closing ')'",
+              type: "SyntaxError",
+              index: index,
+            });
+          inRegularBrackets = false;
+          addComponent(currentComponent, "@function-return", true);
+          currentComponent = ""; //Reset
+          continue; //Ignore the bracket
+        }
+      }
+
+      //If nothing else happened
+      currentComponent += character;
     }
+    addComponent(currentComponent); //End it
+    //Final validation
+    if (inQuotes)
+      errors.push({
+        error: "Unterminated string literal",
+        type: "SyntaxError",
+        index: -1,
+      });
+    if (inSquareBrackets) {
+      errors.push({
+        error: "Unterminated bracket group",
+        type: "SyntaxError",
+        index: -1,
+      });
+      components.push(...pushContext);
+      //addComponent(currentComponent); //End group
+      //let newGrp = pushContext;
+      //pushContext = components;
+      //addComponent(newGrp, "group", true); //Push everything as a component
+    }
+    if (inBackslashes)
+      errors.push({
+        error: "Unterminated variable getter",
+        type: "SyntaxError",
+        index: -1,
+      });
+    if (inRegularBrackets)
+      errors.push({
+        error: "Unterminated function return getter",
+        type: "SyntaxError",
+        index: -1,
+      });
+    addComponent(currentComponent);
 
     return { components: components, errors: errors };
   }
