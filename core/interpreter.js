@@ -59,6 +59,16 @@ class ISLInterpreter {
     realFilename: "",
     strictMode: false,
   };
+  static #defaultMeta(){
+    return {
+      required: [],
+      ignored: [],
+      tags: [],
+      filename: "<direct execution>",
+      realFilename: "",
+      strictMode: false,
+    }
+  }
   //reset this when file changes?
 
   //Execution
@@ -1491,6 +1501,7 @@ class ISLInterpreter {
     this.#counter = 0;
     this.#localVariables = {};
     this.#functions = {};
+    this.#classes = {};
     this.#callstack = [];
     this.#parameters = {};
   }
@@ -1506,7 +1517,7 @@ class ISLInterpreter {
     this.#listeningForKeyPress = false;
     this.#waits = 0;
     //Reset meta
-    this.#meta.ignored = [];
+    this.#meta = ISLInterpreter.#defaultMeta()
     if (this.#debug) {
       this.#log("Interpreter reset.");
     }
