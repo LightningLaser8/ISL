@@ -7,7 +7,7 @@
  __| |__    / \__| \   |  |____
 |_______|   \______/   |_______|
 
-[Infinity] Interpreted Sequence Language
+ >> Integrate Scripting Language <<
 
 Extension API.
 Extensions can provide keywords, labels, variables and types to an ISL interpreter.

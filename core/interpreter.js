@@ -7,7 +7,7 @@
  __| |__    / \__| \   |  |____
 |_______|   \______/   |_______|
 
-[Infinity] Interpreted Sequence Language
+>> Integrate Scripting Language <<
 
 General interpreter for web-env based ISL, can give callback functionality to custom keywords.
 Has a custom error handler to give better information about ISL errors and their cause
@@ -18,7 +18,7 @@ Has a custom error handler to give better information about ISL errors and their
  * General interpreter to run ISL code with. Runs by default in the environment `js`.
  */
 class ISLInterpreter {
-  //Basically, this describes types and when they are valid
+  /** Describes when a value should be considered of a certain type */
   #literals = {
     comparator: (value) => ["=", "!=", "<", ">", "in", "!in"].includes(value),
     keyword: (value) =>
@@ -71,6 +71,7 @@ class ISLInterpreter {
 
   //Vars
   #localVariables = {};
+  /**These cannot be changed by normal ISL, they're like constants but custom keywords and events can change them. Really should be called 'Environment Variables' or something.*/
   #globalVariables = {
     //Mouse variables
     mleft: { value: false, type: "boolean" },
@@ -79,7 +80,7 @@ class ISLInterpreter {
     m4: { value: false, type: "boolean" },
     m5: { value: false, type: "boolean" },
     many: { value: false, type: "boolean" },
-  }; //These cannot be changed by ISL, they're like constants but custom keywords and events can change them.
+  }; 
   #functions = {};
   #parameters = {};
   #callstack = [];
@@ -136,12 +137,12 @@ class ISLInterpreter {
   //Options
   options;
   #showExecutionTime;
+  #disallowedOperations = [];
   #silenced;
   #debug;
   #groupConsoleMessages;
   #name;
   #timestamp;
-  #allowCommunicationDefault;
   #reportErrors;
   #instant;
   #instructionsAtOnce;
@@ -176,7 +177,7 @@ class ISLInterpreter {
    * @param {Boolean} options.tagMessages Whether or not to tag log messages with the interpreter's name. Default false.
    * @param {Boolean} options.groupConsoleMessages Whether or not to group log/debug/error messages in the console. Default false.
    * @param {Boolean} options.timestamp Whether or not to show date and time ISL execution started, either in the group name, or in debug messages. Default false.
-   * @param {Boolean} options.allowCommunicationDefault The default for allowExport and allowImport. Default false.
+   * @param {Boolean} options.disallowedOperations Replaces `options.allowCommunicationDefault`. Defines an array of keywords to disallow. Useful if your environment doesn't like `webprompt`, like a video game.
    * @param {Boolean} options.reportErrors Whether or not to log error messages on crash. Default true.
    * @param {Boolean} options.instant Whether or not to run all loaded ISL at once. May crash from infinite loops. Default false.
    * @param {Number} options.instructions How many instructions to run at a time. Default 1.
@@ -199,14 +200,12 @@ class ISLInterpreter {
     this.#tagMessages = options?.tagMessages ?? false;
     this.#groupConsoleMessages = options?.groupConsoleMessages ?? false;
     this.#timestamp = options?.timestamp ?? false;
-    this.#allowCommunicationDefault =
-      options?.allowCommunicationDefault ?? false;
     this.#reportErrors = options?.reportErrors ?? true;
     this.#instant = options?.instant ?? false;
     this.#instructionsAtOnce = options?.instructions ?? 1;
     this.haltOnDisallowedOperation =
       options?.haltOnDisallowedOperation ?? false;
-    this.allowExport = this.allowImport = this.#allowCommunicationDefault;
+    this.disallowedOperations = options?.disallowedOperations ?? [];
     this.communication =
       options?.communicationEnvironment ?? Object.create(null);
 
@@ -1718,6 +1717,13 @@ class ISLInterpreter {
       }
       return;
     }
+    if (this.#meta.ignored.includes(keyword)) {
+      if (this.#debug) {
+        this.#log(keyword, "was disallowed!");
+      }
+      this.#handleDisallowedOperation("(configured) Use of " + keyword);
+      return;
+    }
     while (
       ISLInterpreter.#isLabel(keyword) ||
       (this.#isOwnLabel(keyword) && parts[1] !== undefined)
@@ -2411,36 +2417,24 @@ class ISLInterpreter {
   }
   //Program Interface
   #isl_export(local, mode, external) {
-    if (this.allowExport) {
-      if (mode === "to") {
-        this.#setVariableFromFullPath(external, this.#getVar(local).value);
-      }
-      if (mode === "as") {
-        this.#setVariableFromFullPath(
-          external,
-          this.#getVar(local).value,
-          true
-        );
-      }
-    } else {
-      this.#handleDisallowedOperation("Export to " + external + ".");
+    if (mode === "to") {
+      this.#setVariableFromFullPath(external, this.#getVar(local).value);
+    }
+    if (mode === "as") {
+      this.#setVariableFromFullPath(external, this.#getVar(local).value, true);
     }
   }
   #isl_import(external, mode, local) {
-    if (this.allowImport) {
-      if (mode === "to") {
-        if (this.#doesVarExist(local)) {
-          const newValue = this.#getVariableFromFullPath(external);
-          this.#isl_set(local, newValue);
-        }
-      }
-      if (mode === "as") {
-        this.#isl_declare("var", local);
+    if (mode === "to") {
+      if (this.#doesVarExist(local)) {
         const newValue = this.#getVariableFromFullPath(external);
         this.#isl_set(local, newValue);
       }
-    } else {
-      this.#handleDisallowedOperation("Import of " + external + ".");
+    }
+    if (mode === "as") {
+      this.#isl_declare("var", local);
+      const newValue = this.#getVariableFromFullPath(external);
+      this.#isl_set(local, newValue);
     }
   }
   #isl_iterate(group, func) {

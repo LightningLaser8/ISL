@@ -1,6 +1,21 @@
 import { ISLExtension } from "../../core/extensions.js";
 import { ISLInterpreter, ISLError } from "../../core/interpreter.js";
-/** Extension replacing built-in graphics functionality, as this would differ cross-platform. */
+
+/*
+ _______     ______     __
+|__   __|   /  __  \   |  |
+   | |     |  |  \_/   |  |
+   | |      \  \__     |  |
+   | |       _\__ \    |  |
+ __| |__    / \__| \   |  |____
+|_______|   \______/   |_______|
+
+>> Integrate Scripting Language <<
+
+Extension replacing built-in graphics functionality, as this would differ cross-platform, and should be implemented by the modded game's developer.
+*/
+
+/** Extension replacing built-in graphics functionality. */
 class GraphicsExtension extends ISLExtension {
   #canvas = null;
   #bufferedGraphics = true;

@@ -7,7 +7,7 @@
  __| |__    / \__| \   |  |____
 |_______|   \______/   |_______|
 
-[Infinity] Interpreted Sequence Language
+>> Integrate Scripting Language <<
 
 Loader for ISL files. That's it.
 */
